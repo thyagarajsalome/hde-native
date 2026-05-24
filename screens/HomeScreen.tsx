@@ -165,19 +165,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Welcome Hero Banner */}
-        <ImageBackground
-          source={require("../assets/images/house_plan_banner.png")}
-          style={styles.heroBackground}
-          imageStyle={styles.heroImage}
-        >
-          <View style={styles.heroOverlay}>
-            <Text style={styles.heroTitle}>Build Your Dream Home</Text>
-            <Text style={styles.heroSubtitle}>
-              Estimate construction costs, select materials, and explore blueprints seamlessly.
-            </Text>
-          </View>
-        </ImageBackground>
+
 
         {/* Grid Section Title */}
         <Text style={styles.sectionTitle}>Estimation Tools</Text>
