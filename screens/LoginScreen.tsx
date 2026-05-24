@@ -15,6 +15,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
+
+WebBrowser.maybeCompleteAuthSession();
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, "Login">;
 
@@ -26,7 +30,82 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      const redirectUrl = Linking.createURL("auth/callback");
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.url) {
+        throw new Error("No authorization URL returned from Supabase.");
+      }
+
+      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+
+      if (res.type === "success" && res.url) {
+        // Parse access_token and refresh_token from the redirected hash URL
+        const hash = res.url.split("#")[1];
+        if (hash) {
+          const params = hash.split("&").reduce((acc, current) => {
+            const [key, value] = current.split("=");
+            acc[key] = decodeURIComponent(value);
+            return acc;
+          }, {} as Record<string, string>);
+
+          const accessToken = params["access_token"];
+          const refreshToken = params["refresh_token"];
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+            navigation.navigate("MainTabs");
+            return;
+          }
+        }
+
+        // Fallback: Parse from query parameters if present
+        const queryParams = res.url.split("?")[1];
+        if (queryParams) {
+          const params = queryParams.split("&").reduce((acc, current) => {
+            const [key, value] = current.split("=");
+            acc[key] = decodeURIComponent(value);
+            return acc;
+          }, {} as Record<string, string>);
+
+          const accessToken = params["access_token"];
+          const refreshToken = params["refresh_token"];
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+            navigation.navigate("MainTabs");
+            return;
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error("Google Sign-In error:", error);
+      Alert.alert("Google Sign-In Failed", error.message || "An error occurred during Google sign in.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -118,12 +197,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             <TouchableOpacity
               style={styles.btnPrimary}
               onPress={handleLogin}
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
               {loading ? (
                 <ActivityIndicator color="#1E293B" />
               ) : (
                 <Text style={styles.btnText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.btnGoogle}
+              onPress={handleGoogleSignIn}
+              disabled={loading || googleLoading}
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#1E293B" />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color="#1E293B" style={styles.googleIcon} />
+                  <Text style={styles.btnGoogleText}>Sign In with Google</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -233,6 +333,46 @@ const styles = StyleSheet.create({
     color: "#1E293B",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E2E8F0",
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+  btnGoogle: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    height: 48,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    marginBottom: 8,
+  },
+  googleIcon: {
+    marginRight: 8,
+  },
+  btnGoogleText: {
+    color: "#1E293B",
+    fontSize: 15,
+    fontWeight: "600",
   },
   footer: {
     flexDirection: "row",
