@@ -38,73 +38,73 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const calculators: CalculatorItem[] = [
     {
       id: "construction",
-      title: "Construction Cost",
-      icon: "home-outline",
-      color: "#3B82F6",
+      title: "Construction",
+      icon: "home",
+      color: "#D9A443",
       minTier: 0,
       screen: "ConstructionCalculator",
     },
     {
-      id: "materials",
-      title: "Material Quantity",
-      icon: "cube-outline",
-      color: "#10B981",
-      minTier: 3,
-      screen: "MaterialCalculator",
+      id: "interior",
+      title: "Interiors",
+      icon: "bed-outline",
+      color: "#64748B",
+      minTier: 1,
+      screen: "OtherCalculator",
+      params: { type: "interior" },
     },
     {
       id: "flooring",
-      title: "Flooring Cost",
-      icon: "grid-outline",
-      color: "#EC4899",
+      title: "Flooring",
+      icon: "layers-outline",
+      color: "#64748B",
       minTier: 1,
       screen: "OtherCalculator",
       params: { type: "flooring" },
     },
     {
       id: "painting",
-      title: "Painting Cost",
+      title: "Painting",
       icon: "brush-outline",
-      color: "#8B5CF6",
+      color: "#64748B",
       minTier: 1,
       screen: "OtherCalculator",
       params: { type: "painting" },
     },
     {
+      id: "doors-windows",
+      title: "Doors/Windows",
+      icon: "open-outline",
+      color: "#64748B",
+      minTier: 2,
+      screen: "OtherCalculator",
+      params: { type: "doors-windows" },
+    },
+    {
       id: "plumbing",
-      title: "Plumbing Cost",
+      title: "Plumbing",
       icon: "water-outline",
-      color: "#06B6D4",
+      color: "#64748B",
       minTier: 2,
       screen: "OtherCalculator",
       params: { type: "plumbing" },
     },
     {
       id: "electrical",
-      title: "Electrical Cost",
+      title: "Electrical",
       icon: "flash-outline",
-      color: "#F59E0B",
+      color: "#64748B",
       minTier: 2,
       screen: "OtherCalculator",
       params: { type: "electrical" },
     },
     {
-      id: "doors-windows",
-      title: "Doors & Windows",
-      icon: "log-in-outline",
-      color: "#EF4444",
-      minTier: 2,
-      screen: "OtherCalculator",
-      params: { type: "doors-windows" },
-    },
-    {
-      id: "interior",
-      title: "Interior Design",
-      icon: "color-palette-outline",
-      color: "#8D6E63",
-      minTier: 1,
-      screen: "OtherCalculator",
-      params: { type: "interior" },
+      id: "materials",
+      title: "Materials BOQ",
+      icon: "cube-outline",
+      color: "#64748B",
+      minTier: 3,
+      screen: "MaterialCalculator",
     },
   ];
 
@@ -170,40 +170,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         {/* Grid Section Title */}
         <Text style={styles.sectionTitle}>Estimation Tools</Text>
 
-        {/* Grid of Calculators (2-column wrap) */}
-        <View style={styles.grid}>
-          {calculators.map((calc) => {
+        {/* Stacked List of Calculators */}
+        <View style={styles.listContainer}>
+          {calculators.map((calc, index) => {
             const isLocked = userTierValue < calc.minTier;
-            const tierNames = ["Free", "Basic", "Standard", "Pro"];
-            const targetTierName = tierNames[calc.minTier];
+            const isLast = index === calculators.length - 1;
 
             return (
               <TouchableOpacity
                 key={calc.id}
-                style={styles.card}
+                style={[
+                  styles.listRow,
+                  isLast ? styles.listRowLast : null
+                ]}
                 onPress={() => handlePress(calc)}
                 activeOpacity={0.7}
               >
-                <View style={[styles.iconContainer, { backgroundColor: calc.color + "12" }]}>
-                  <Ionicons name={calc.icon} size={20} color={calc.color} />
+                <View style={styles.listRowLeft}>
+                  <Ionicons 
+                    name={calc.icon} 
+                    size={22} 
+                    color={calc.id === "construction" ? "#D9A443" : "#64748B"} 
+                    style={styles.listIcon} 
+                  />
+                  <Text style={styles.listRowTitle}>{calc.title}</Text>
                 </View>
-                <View style={styles.cardContent}>
-                  <Text style={styles.cardTitle} numberOfLines={1}>{calc.title}</Text>
-                  {calc.minTier > 0 && (
-                    <View style={styles.badgeRow}>
-                      <Ionicons 
-                        name={isLocked ? "lock-closed" : "checkmark-circle"} 
-                        size={9} 
-                        color={isLocked ? "#EF4444" : "#10B981"} 
-                        style={{ marginRight: 2 }}
-                      />
-                      <Text style={[styles.premiumText, isLocked ? null : styles.premiumTextPaid]}>
-                        {isLocked ? targetTierName.toUpperCase() : "Unlocked"}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+                {isLocked && (
+                  <Ionicons name="lock-closed" size={16} color="#CBD5E1" />
+                )}
               </TouchableOpacity>
             );
           })}
@@ -348,57 +342,45 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     marginTop: 8,
   },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  card: {
-    width: "48%",
-    flexDirection: "row",
-    alignItems: "center",
+  listContainer: {
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
-    marginBottom: 10,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    overflow: "hidden",
     shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 24,
   },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 6,
-  },
-  cardContent: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: "#1E293B",
-  },
-  badgeRow: {
+  listRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 2,
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    backgroundColor: "#FFFFFF",
   },
-  premiumText: {
-    fontSize: 8,
-    fontWeight: "bold",
-    color: "#EF4444",
+  listRowLast: {
+    borderBottomWidth: 0,
   },
-  premiumTextPaid: {
-    color: "#10B981",
+  listRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  listIcon: {
+    marginRight: 16,
+    width: 24,
+    textAlign: "center",
+  },
+  listRowTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#1E293B",
   },
   shortcutsContainer: {
     marginBottom: 10,
