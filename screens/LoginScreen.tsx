@@ -10,6 +10,7 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
@@ -167,10 +168,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.logoBadge}>
-              <Ionicons name="home" size={32} color="#D9A443" />
-            </View>
-            <Text style={styles.title}>Home Design English</Text>
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={styles.loginLogo}
+              resizeMode="contain"
+            />
+            <Text style={styles.title}>HDE</Text>
             <Text style={styles.subtitle}>Sign in to save estimates and sync projects</Text>
           </View>
 
@@ -281,19 +284,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 36,
   },
-  logoBadge: {
+  loginLogo: {
     width: 64,
     height: 64,
     borderRadius: 16,
-    backgroundColor: "#1E293B",
-    justifyContent: "center",
-    alignItems: "center",
     marginBottom: 16,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
   },
   title: {
     fontSize: 24,
