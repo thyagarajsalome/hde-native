@@ -30,8 +30,8 @@ interface CalculatorItem {
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { hasPaid, planTier, role } = useUser();
-  const userTierValue = role === "admin" ? 3 : { free: 0, basic: 1, standard: 2, pro: 3 }[planTier || "free"] || 0;
+  const { user, hasPaid, planTier, role } = useUser();
+  const userTierValue = { free: 0, basic: 1, standard: 2, pro: 3 }[planTier || "free"] || 0;
 
   const calculators: CalculatorItem[] = [
     {
@@ -107,6 +107,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   ];
 
   const handlePress = (calc: CalculatorItem) => {
+    if (!user && calc.minTier > 0) {
+      navigation.navigate("Login");
+      return;
+    }
+
     if (userTierValue < calc.minTier) {
       navigation.navigate("Upgrade");
       return;
@@ -136,9 +141,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <Text style={styles.headerSubtitle}>A Guide to Build Dream Home & Estimation Platform</Text>
           </View>
         </View>
-        {hasPaid ? (
+        {!user ? (
+          <TouchableOpacity 
+            style={styles.badgeProUpgrade} 
+            onPress={() => navigation.navigate("Login")}
+          >
+            <Text style={styles.badgeProUpgradeText}>Sign In</Text>
+          </TouchableOpacity>
+        ) : hasPaid ? (
           <View style={styles.badgeProActive}>
-            <Text style={styles.badgeProActiveText}>PRO</Text>
+            <Text style={styles.badgeProActiveText}>{planTier.toUpperCase()}</Text>
           </View>
         ) : (
           <TouchableOpacity 

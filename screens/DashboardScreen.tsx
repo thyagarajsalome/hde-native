@@ -143,6 +143,31 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     }
   };
 
+  const handleMockTierUpdate = async (tier: 'free' | 'basic' | 'standard' | 'pro', paid: boolean, testCredits: number) => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ 
+          has_paid: paid, 
+          plan_tier: tier, 
+          credits: testCredits,
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', user.id);
+
+      if (error) throw error;
+      await refreshProfile();
+      Alert.alert("Success", `Profile tier updated to ${tier.toUpperCase()} in database!`);
+    } catch (err: any) {
+      console.error("Error updating mock tier:", err);
+      Alert.alert("Error", err.message || "Failed to update mock tier.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeleteProject = (projectId: string) => {
     Alert.alert(
       "Confirm Delete",
@@ -318,6 +343,45 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
           <Text style={styles.btnSignOutText}>Sign Out</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Developer Tools (Dev-Only) */}
+      {__DEV__ && (
+        <View style={styles.devToolsCard}>
+          <View style={styles.devToolsHeader}>
+            <Ionicons name="construct-outline" size={18} color="#EF4444" style={{ marginRight: 6 }} />
+            <Text style={styles.devToolsTitle}>Dev Tools: Change Plan Tier</Text>
+          </View>
+          <Text style={styles.devToolsText}>
+            Directly update your database profile to mock any plan for testing locks & credit checks.
+          </Text>
+          <View style={styles.devToolsButtons}>
+            <TouchableOpacity 
+              style={[styles.devBtn, planTier === 'free' && styles.devBtnActive]} 
+              onPress={() => handleMockTierUpdate('free', false, 0)}
+            >
+              <Text style={[styles.devBtnText, planTier === 'free' && styles.devBtnTextActive]}>FREE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.devBtn, planTier === 'basic' && styles.devBtnActive]} 
+              onPress={() => handleMockTierUpdate('basic', true, 5)}
+            >
+              <Text style={[styles.devBtnText, planTier === 'basic' && styles.devBtnTextActive]}>BASIC</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.devBtn, planTier === 'standard' && styles.devBtnActive]} 
+              onPress={() => handleMockTierUpdate('standard', true, 10)}
+            >
+              <Text style={[styles.devBtnText, planTier === 'standard' && styles.devBtnTextActive]}>STD</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.devBtn, planTier === 'pro' && styles.devBtnActive]} 
+              onPress={() => handleMockTierUpdate('pro', true, 100)}
+            >
+              <Text style={[styles.devBtnText, planTier === 'pro' && styles.devBtnTextActive]}>PRO</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       {/* Admin Panel Section */}
       {role === "admin" && (
@@ -709,6 +773,58 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 11,
     fontWeight: "bold",
+  },
+  devToolsCard: {
+    backgroundColor: "#FEF2F2",
+    borderRadius: 16,
+    padding: 16,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+  devToolsHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  devToolsTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#991B1B",
+  },
+  devToolsText: {
+    fontSize: 11,
+    color: "#7F1D1D",
+    marginBottom: 12,
+    lineHeight: 15,
+  },
+  devToolsButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  devBtn: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    height: 32,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginHorizontal: 4,
+  },
+  devBtnActive: {
+    backgroundColor: "#EF4444",
+    borderColor: "#EF4444",
+  },
+  devBtnText: {
+    color: "#991B1B",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  devBtnTextActive: {
+    color: "#FFFFFF",
   },
 });
 

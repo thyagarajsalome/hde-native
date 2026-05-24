@@ -57,11 +57,19 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({ navigation }) => {
       }
 
       if (data?.user) {
-        Alert.alert(
-          "Registration Successful",
-          "Verification link has been sent to your email (if enabled) or you can sign in now.",
-          [{ text: "OK", onPress: () => navigation.navigate("Login") }]
-        );
+        if (data.session) {
+          Alert.alert(
+            "Registration Successful",
+            "Your account has been created and you are now logged in!",
+            [{ text: "Get Started", onPress: () => navigation.navigate("MainTabs") }]
+          );
+        } else {
+          Alert.alert(
+            "Registration Successful",
+            "Verification link has been sent to your email (if enabled) or you can sign in now.",
+            [{ text: "OK", onPress: () => navigation.navigate("Login") }]
+          );
+        }
       }
     } catch (error: any) {
       console.error("Sign up error:", error);
