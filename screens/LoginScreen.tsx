@@ -17,8 +17,32 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
+import Svg, { Path } from "react-native-svg";
 
 WebBrowser.maybeCompleteAuthSession();
+
+const GoogleIcon = ({ size = 20, style }: { size?: number; style?: any }) => (
+  <View style={style}>
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.7-.07-1.4-.19-2.07H12v3.91h6.67c-.29 1.53-1.14 2.82-2.4 3.68v3.06h3.88c2.27-2.09 3.59-5.17 3.59-8.58z"
+      />
+      <Path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.06c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.17C3.28 20.35 7.42 24 12 24z"
+      />
+      <Path
+        fill="#FBBC05"
+        d="M5.27 14.23A7.17 7.17 0 0 1 4.88 12c0-.79.13-1.57.39-2.28V6.55H1.29A11.94 11.94 0 0 0 0 12c0 2.01.5 3.91 1.29 5.56l3.98-3.33z"
+      />
+      <Path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.97 1.08 15.24 0 12 0 7.42 0 3.28 3.65 1.29 7.64l3.98 3.33c.95-2.85 3.6-4.96 6.73-4.96z"
+      />
+    </Svg>
+  </View>
+);
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, "Login">;
 
@@ -221,7 +245,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
                 <ActivityIndicator color="#1E293B" />
               ) : (
                 <>
-                  <Ionicons name="logo-google" size={20} color="#1E293B" style={styles.googleIcon} />
+                  <GoogleIcon size={18} style={styles.googleIcon} />
                   <Text style={styles.btnGoogleText}>Sign In with Google</Text>
                 </>
               )}
