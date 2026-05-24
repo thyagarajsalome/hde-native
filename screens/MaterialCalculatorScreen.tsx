@@ -16,6 +16,7 @@ import { supabase } from "../services/supabaseClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import Slider from "@react-native-community/slider";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const WALL_TYPES = {
@@ -376,28 +377,41 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
           <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <style>
-              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; color: #1E293B; }
-              .header { border-bottom: 2px solid #D9A443; padding-bottom: 10px; margin-bottom: 20px; }
-              .title { font-size: 20px; font-weight: bold; color: #1E293B; }
-              .meta { font-size: 11px; color: #64748B; margin-top: 6px; }
-              .table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              .table th { background-color: #1E293B; color: #FFFFFF; text-align: left; padding: 8px; font-size: 12px; }
-              .total-box { margin-top: 30px; background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 16px; border-radius: 12px; }
-              .total-lbl { font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; }
-              .total-val { font-size: 22px; font-weight: bold; color: #D9A443; margin-top: 4px; }
-              .footer { margin-top: 40px; font-size: 9px; color: #94A3B8; font-style: italic; text-align: center; }
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 24px; color: #1E293B; background-color: #FFFFFF; }
+              .report-header { border-bottom: 3px solid #D9A443; padding-bottom: 12px; margin-bottom: 20px; }
+              .logo-title { font-size: 24px; font-weight: 800; color: #1E293B; letter-spacing: 0.5px; margin: 0; }
+              .logo-title span { color: #D9A443; }
+              .report-tag { font-size: 11px; color: #64748B; margin-top: 6px; font-weight: bold; text-transform: uppercase; }
+              .table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
+              .table th { background-color: #1E293B; color: #FFFFFF; text-align: left; padding: 10px 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+              .table td { padding: 10px 12px; border-bottom: 1px solid #E2E8F0; font-size: 11px; color: #334155; }
+              .total-box { background-color: #FFFDF5; border: 1px solid #FCD34D; padding: 18px; border-radius: 8px; margin-top: 20px; margin-bottom: 30px; }
+              .total-lbl { font-size: 11px; color: #78350F; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+              .total-val { font-size: 26px; font-weight: 800; color: #B45309; margin-top: 4px; }
+              .sign-section { width: 100%; border-collapse: collapse; margin-top: 40px; }
+              .sign-box { font-size: 11px; color: #64748B; vertical-align: top; }
+              .sign-line { width: 180px; border-bottom: 1px solid #94A3B8; margin-top: 20px; height: 10px; }
+              .footer { margin-top: 30px; font-size: 9px; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 12px; line-height: 14px; }
             </style>
           </head>
           <body>
-            <div class="header">
-              <div class="title">HOME DESIGN ENGLISH (HDE)</div>
-              <div class="meta">MATERIAL BILL OF QUANTITIES (BOQ) • Generated on ${formattedDate}</div>
+            <div class="report-header">
+              <h1 class="logo-title">HOME DESIGN <span>ENGLISH</span></h1>
+              <div class="report-tag">MATERIAL BILL OF QUANTITIES (BOQ) • Generated on ${formattedDate}</div>
             </div>
-            <h3>Project Specifications:</h3>
-            <p><strong>Built-up Area:</strong> ${area} sq.ft</p>
-            <p><strong>Number of Floors:</strong> ${floors}</p>
-            <p><strong>Quality Class:</strong> ${QUALITY_PRESETS[quality].label}</p>
-            <p><strong>Wall Type:</strong> ${WALL_TYPES[wallType].name}</p>
+
+            <table style="width: 100%; margin-bottom: 20px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-collapse: collapse; border-radius: 8px;">
+              <tr>
+                <td style="padding: 12px 16px; border: 0; width: 50%; font-size: 12px; color: #475569; line-height: 1.6; vertical-align: top;">
+                  <strong>Built-up Area:</strong> ${area} sq.ft<br/>
+                  <strong>Number of Floors:</strong> G + ${floors - 1}
+                </td>
+                <td style="padding: 12px 16px; border: 0; width: 50%; font-size: 12px; color: #475569; line-height: 1.6; vertical-align: top;">
+                  <strong>Quality Class:</strong> ${QUALITY_PRESETS[quality].label}<br/>
+                  <strong>Wall Type:</strong> ${WALL_TYPES[wallType].name}
+                </td>
+              </tr>
+            </table>
 
             <table class="table">
               <thead>
@@ -419,8 +433,23 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
               <div class="total-val">${formattedTotal}</div>
             </div>
 
+            <table class="sign-section">
+              <tr>
+                <td class="sign-box" style="width: 50%;">
+                  Prepared By:<br/>
+                  <div class="sign-line"></div>
+                  <span style="font-size: 9px; margin-top: 4px; display: block;">HDE Automated Estimator</span>
+                </td>
+                <td class="sign-box" style="width: 50%; text-align: right;">
+                  Client Approval:<br/>
+                  <div class="sign-line" style="margin-left: auto;"></div>
+                  <span style="font-size: 9px; margin-top: 4px; display: block;">Signature / Date</span>
+                </td>
+              </tr>
+            </table>
+
             <div class="footer">
-              Material list forecasts are approximations based on average regional ratios. Local material supplier pricing governs.
+              Material list forecasts are approximations based on average regional ratios. Local material supplier pricing governs. This report is for general budgeting purposes based on HDE standard models and should be verified locally.
             </div>
           </body>
         </html>`;
@@ -450,6 +479,20 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
               value={area}
               onChangeText={setArea}
             />
+          </View>
+          <View style={styles.sliderRow}>
+            <Slider
+              style={styles.slider}
+              minimumValue={500}
+              maximumValue={5000}
+              step={50}
+              value={parseFloat(area) || 500}
+              onValueChange={(val) => setArea(String(val))}
+              minimumTrackTintColor="#D9A443"
+              maximumTrackTintColor="#CBD5E1"
+              thumbTintColor="#D9A443"
+            />
+            <Text style={styles.sliderValueText}>{parseFloat(area) || 500} sqft</Text>
           </View>
         </View>
 
@@ -874,6 +917,24 @@ const styles = StyleSheet.create({
     color: "#475569",
     fontSize: 15,
     fontWeight: "bold",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  sliderValueText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#D9A443",
+    marginLeft: 8,
+    minWidth: 70,
+    textAlign: "right",
   },
 });
 
