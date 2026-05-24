@@ -7,6 +7,8 @@ import {
   SafeAreaView,
   StatusBar,
   Image,
+  ScrollView,
+  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useUser } from "../context/UserContext";
@@ -162,44 +164,98 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
       </View>
 
-      {/* Grid of Calculators (2-column wrap) */}
-      <View style={styles.grid}>
-        {calculators.map((calc) => {
-          const isLocked = userTierValue < calc.minTier;
-          const tierNames = ["Free", "Basic", "Standard", "Pro"];
-          const targetTierName = tierNames[calc.minTier];
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Welcome Hero Banner */}
+        <ImageBackground
+          source={require("../assets/images/previews/outdoor_patio.png")}
+          style={styles.heroBackground}
+          imageStyle={styles.heroImage}
+        >
+          <View style={styles.heroOverlay}>
+            <Text style={styles.heroTitle}>Build Your Dream Home</Text>
+            <Text style={styles.heroSubtitle}>
+              Estimate construction costs, select materials, and explore blueprints seamlessly.
+            </Text>
+          </View>
+        </ImageBackground>
 
-          return (
-            <TouchableOpacity
-              key={calc.id}
-              style={styles.card}
-              onPress={() => handlePress(calc)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: calc.color + "12" }]}>
-                <Ionicons name={calc.icon} size={20} color={calc.color} />
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle} numberOfLines={1}>{calc.title}</Text>
-                {calc.minTier > 0 && (
-                  <View style={styles.badgeRow}>
-                    <Ionicons 
-                      name={isLocked ? "lock-closed" : "checkmark-circle"} 
-                      size={9} 
-                      color={isLocked ? "#EF4444" : "#10B981"} 
-                      style={{ marginRight: 2 }}
-                    />
-                    <Text style={[styles.premiumText, isLocked ? null : styles.premiumTextPaid]}>
-                      {isLocked ? targetTierName.toUpperCase() : "Unlocked"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+        {/* Grid Section Title */}
+        <Text style={styles.sectionTitle}>Estimation Tools</Text>
+
+        {/* Grid of Calculators (2-column wrap) */}
+        <View style={styles.grid}>
+          {calculators.map((calc) => {
+            const isLocked = userTierValue < calc.minTier;
+            const tierNames = ["Free", "Basic", "Standard", "Pro"];
+            const targetTierName = tierNames[calc.minTier];
+
+            return (
+              <TouchableOpacity
+                key={calc.id}
+                style={styles.card}
+                onPress={() => handlePress(calc)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.iconContainer, { backgroundColor: calc.color + "12" }]}>
+                  <Ionicons name={calc.icon} size={20} color={calc.color} />
+                </View>
+                <View style={styles.cardContent}>
+                  <Text style={styles.cardTitle} numberOfLines={1}>{calc.title}</Text>
+                  {calc.minTier > 0 && (
+                    <View style={styles.badgeRow}>
+                      <Ionicons 
+                        name={isLocked ? "lock-closed" : "checkmark-circle"} 
+                        size={9} 
+                        color={isLocked ? "#EF4444" : "#10B981"} 
+                        style={{ marginRight: 2 }}
+                      />
+                      <Text style={[styles.premiumText, isLocked ? null : styles.premiumTextPaid]}>
+                        {isLocked ? targetTierName.toUpperCase() : "Unlocked"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Explore HDE Premium Services Section */}
+        <Text style={styles.sectionTitle}>Explore Premium Services</Text>
+
+        <View style={styles.shortcutsContainer}>
+          <TouchableOpacity
+            style={styles.shortcutCard}
+            onPress={() => (navigation as any).navigate("TabPlans")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.shortcutIconWrapper, { backgroundColor: "#3B82F615" }]}>
+              <Ionicons name="images-outline" size={24} color="#3B82F6" />
+            </View>
+            <View style={styles.shortcutContent}>
+              <Text style={styles.shortcutTitle}>Floor Plan Gallery</Text>
+              <Text style={styles.shortcutDesc}>Explore architectural 2D/3D blueprints and elevations.</Text>
+            </View>
+            <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shortcutCard}
+            onPress={() => (navigation as any).navigate("TabDirectory")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.shortcutIconWrapper, { backgroundColor: "#F59E0B15" }]}>
+              <Ionicons name="business-outline" size={24} color="#F59E0B" />
+            </View>
+            <View style={styles.shortcutContent}>
+              <Text style={styles.shortcutTitle}>Verified Directory</Text>
+              <Text style={styles.shortcutDesc}>Get in touch with local builders, engineers, and decorators.</Text>
+            </View>
+            <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -263,11 +319,52 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
+  },
+  heroBackground: {
+    height: 130,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  heroImage: {
+    borderRadius: 14,
+  },
+  heroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.6)", // Slate overlay
+    padding: 18,
+    justifyContent: "center",
+  },
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    color: "#E2E8F0",
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.9,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#1E293B",
+    textTransform: "uppercase",
+    letterSpacing: 0.75,
+    marginBottom: 12,
+    marginTop: 8,
+  },
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    padding: 10,
     justifyContent: "space-between",
+    marginBottom: 16,
   },
   card: {
     width: "48%",
@@ -314,6 +411,47 @@ const styles = StyleSheet.create({
   },
   premiumTextPaid: {
     color: "#10B981",
+  },
+  shortcutsContainer: {
+    marginBottom: 10,
+  },
+  shortcutCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  shortcutIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  shortcutContent: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  shortcutTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#1E293B",
+    marginBottom: 2,
+  },
+  shortcutDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    lineHeight: 14,
   },
 });
 
