@@ -167,7 +167,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Welcome Hero Banner */}
         <ImageBackground
-          source={require("../assets/images/previews/outdoor_patio.png")}
+          source={require("../assets/images/house_plan_banner.png")}
           style={styles.heroBackground}
           imageStyle={styles.heroImage}
         >
