@@ -41,11 +41,11 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "1.9.24",
+            "kotlinVersion": "2.0.21",
             "minSdkVersion": 24,
-            "compileSdkVersion": 34,
-            "targetSdkVersion": 34,
-            "buildToolsVersion": "34.0.0",
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 35,
+            "buildToolsVersion": "35.0.0",
             "usesCleartextTraffic": false
           }
         }
@@ -55,12 +55,7 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": false
-    },
-    "extra": {
-      "eas": {
-        "projectId": "75a08859-aa2b-4e94-94f4-93850940ff5d"
-      }
-    },
-    "owner": "thyagaraja"
+    }
+   
   }
 }
