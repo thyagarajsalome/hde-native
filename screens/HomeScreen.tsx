@@ -7,6 +7,8 @@ import {
   SafeAreaView,
   StatusBar,
   Image,
+  ScrollView,
+  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useUser } from "../context/UserContext";
@@ -36,73 +38,73 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const calculators: CalculatorItem[] = [
     {
       id: "construction",
-      title: "Construction Cost",
-      icon: "home-outline",
-      color: "#3B82F6",
+      title: "Construction",
+      icon: "home",
+      color: "#D9A443",
       minTier: 0,
       screen: "ConstructionCalculator",
     },
     {
-      id: "materials",
-      title: "Material Quantity",
-      icon: "cube-outline",
-      color: "#10B981",
-      minTier: 3,
-      screen: "MaterialCalculator",
+      id: "interior",
+      title: "Interiors",
+      icon: "bed-outline",
+      color: "#64748B",
+      minTier: 1,
+      screen: "OtherCalculator",
+      params: { type: "interior" },
     },
     {
       id: "flooring",
-      title: "Flooring Cost",
-      icon: "grid-outline",
-      color: "#EC4899",
+      title: "Flooring",
+      icon: "layers-outline",
+      color: "#64748B",
       minTier: 1,
       screen: "OtherCalculator",
       params: { type: "flooring" },
     },
     {
       id: "painting",
-      title: "Painting Cost",
+      title: "Painting",
       icon: "brush-outline",
-      color: "#8B5CF6",
+      color: "#64748B",
       minTier: 1,
       screen: "OtherCalculator",
       params: { type: "painting" },
     },
     {
+      id: "doors-windows",
+      title: "Doors/Windows",
+      icon: "open-outline",
+      color: "#64748B",
+      minTier: 2,
+      screen: "OtherCalculator",
+      params: { type: "doors-windows" },
+    },
+    {
       id: "plumbing",
-      title: "Plumbing Cost",
+      title: "Plumbing",
       icon: "water-outline",
-      color: "#06B6D4",
+      color: "#64748B",
       minTier: 2,
       screen: "OtherCalculator",
       params: { type: "plumbing" },
     },
     {
       id: "electrical",
-      title: "Electrical Cost",
+      title: "Electrical",
       icon: "flash-outline",
-      color: "#F59E0B",
+      color: "#64748B",
       minTier: 2,
       screen: "OtherCalculator",
       params: { type: "electrical" },
     },
     {
-      id: "doors-windows",
-      title: "Doors & Windows",
-      icon: "log-in-outline",
-      color: "#EF4444",
-      minTier: 2,
-      screen: "OtherCalculator",
-      params: { type: "doors-windows" },
-    },
-    {
-      id: "interior",
-      title: "Interior Design",
-      icon: "color-palette-outline",
-      color: "#8D6E63",
-      minTier: 1,
-      screen: "OtherCalculator",
-      params: { type: "interior" },
+      id: "materials",
+      title: "Materials BOQ",
+      icon: "cube-outline",
+      color: "#64748B",
+      minTier: 3,
+      screen: "MaterialCalculator",
     },
   ];
 
@@ -162,44 +164,80 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
       </View>
 
-      {/* Grid of Calculators (2-column wrap) */}
-      <View style={styles.grid}>
-        {calculators.map((calc) => {
-          const isLocked = userTierValue < calc.minTier;
-          const tierNames = ["Free", "Basic", "Standard", "Pro"];
-          const targetTierName = tierNames[calc.minTier];
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
 
-          return (
-            <TouchableOpacity
-              key={calc.id}
-              style={styles.card}
-              onPress={() => handlePress(calc)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: calc.color + "12" }]}>
-                <Ionicons name={calc.icon} size={20} color={calc.color} />
-              </View>
-              <View style={styles.cardContent}>
-                <Text style={styles.cardTitle} numberOfLines={1}>{calc.title}</Text>
-                {calc.minTier > 0 && (
-                  <View style={styles.badgeRow}>
-                    <Ionicons 
-                      name={isLocked ? "lock-closed" : "checkmark-circle"} 
-                      size={9} 
-                      color={isLocked ? "#EF4444" : "#10B981"} 
-                      style={{ marginRight: 2 }}
-                    />
-                    <Text style={[styles.premiumText, isLocked ? null : styles.premiumTextPaid]}>
-                      {isLocked ? targetTierName.toUpperCase() : "Unlocked"}
-                    </Text>
-                  </View>
+
+        {/* Grid Section Title */}
+        <Text style={styles.sectionTitle}>Estimation Tools</Text>
+
+        {/* Stacked List of Calculators */}
+        <View style={styles.listContainer}>
+          {calculators.map((calc, index) => {
+            const isLocked = userTierValue < calc.minTier;
+            const isLast = index === calculators.length - 1;
+
+            return (
+              <TouchableOpacity
+                key={calc.id}
+                style={[
+                  styles.listRow,
+                  isLast ? styles.listRowLast : null
+                ]}
+                onPress={() => handlePress(calc)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.listRowLeft}>
+                  <Ionicons 
+                    name={calc.icon} 
+                    size={22} 
+                    color={calc.id === "construction" ? "#D9A443" : "#64748B"} 
+                    style={styles.listIcon} 
+                  />
+                  <Text style={styles.listRowTitle}>{calc.title}</Text>
+                </View>
+                {isLocked && (
+                  <Ionicons name="lock-closed" size={16} color="#CBD5E1" />
                 )}
-              </View>
-              <Ionicons name="chevron-forward" size={12} color="#94A3B8" />
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Explore HDE Premium Services Section */}
+        <Text style={styles.sectionTitle}>Explore Premium Services</Text>
+
+        <View style={styles.shortcutsContainer}>
+          <TouchableOpacity
+            style={styles.shortcutCard}
+            onPress={() => (navigation as any).navigate("TabPlans")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.shortcutIconWrapper, { backgroundColor: "#3B82F615" }]}>
+              <Ionicons name="images-outline" size={24} color="#3B82F6" />
+            </View>
+            <View style={styles.shortcutContent}>
+              <Text style={styles.shortcutTitle}>Floor Plan Gallery</Text>
+              <Text style={styles.shortcutDesc}>Explore architectural 2D/3D blueprints and elevations.</Text>
+            </View>
+            <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.shortcutCard}
+            onPress={() => (navigation as any).navigate("TabDirectory")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.shortcutIconWrapper, { backgroundColor: "#F59E0B15" }]}>
+              <Ionicons name="business-outline" size={24} color="#F59E0B" />
+            </View>
+            <View style={styles.shortcutContent}>
+              <Text style={styles.shortcutTitle}>Verified Directory</Text>
+              <Text style={styles.shortcutDesc}>Get in touch with local builders, engineers, and decorators.</Text>
+            </View>
+            <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -263,20 +301,96 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    padding: 10,
-    justifyContent: "space-between",
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 24,
   },
-  card: {
-    width: "48%",
+  heroBackground: {
+    height: 130,
+    borderRadius: 14,
+    overflow: "hidden",
+    marginBottom: 20,
+  },
+  heroImage: {
+    borderRadius: 14,
+  },
+  heroOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.6)", // Slate overlay
+    padding: 18,
+    justifyContent: "center",
+  },
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "800",
+    marginBottom: 6,
+  },
+  heroSubtitle: {
+    color: "#E2E8F0",
+    fontSize: 11,
+    lineHeight: 16,
+    opacity: 0.9,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#1E293B",
+    textTransform: "uppercase",
+    letterSpacing: 0.75,
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  listContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    overflow: "hidden",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+    marginBottom: 24,
+  },
+  listRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+    backgroundColor: "#FFFFFF",
+  },
+  listRowLast: {
+    borderBottomWidth: 0,
+  },
+  listRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  listIcon: {
+    marginRight: 16,
+    width: 24,
+    textAlign: "center",
+  },
+  listRowTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    color: "#1E293B",
+  },
+  shortcutsContainer: {
+    marginBottom: 10,
+  },
+  shortcutCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 8,
-    paddingVertical: 12,
     borderRadius: 12,
+    padding: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -286,34 +400,28 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  iconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+  shortcutIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 6,
+    marginRight: 12,
   },
-  cardContent: {
+  shortcutContent: {
     flex: 1,
+    paddingRight: 8,
   },
-  cardTitle: {
-    fontSize: 11,
+  shortcutTitle: {
+    fontSize: 14,
     fontWeight: "bold",
     color: "#1E293B",
+    marginBottom: 2,
   },
-  badgeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 2,
-  },
-  premiumText: {
-    fontSize: 8,
-    fontWeight: "bold",
-    color: "#EF4444",
-  },
-  premiumTextPaid: {
-    color: "#10B981",
+  shortcutDesc: {
+    fontSize: 11,
+    color: "#64748B",
+    lineHeight: 14,
   },
 });
 

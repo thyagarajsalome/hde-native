@@ -58,8 +58,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "25ed4d08-d954-435d-84bd-888f29d550de"
+        "projectId": "75a08859-aa2b-4e94-94f4-93850940ff5d"
       }
-    }
+    },
+    "owner": "thyagaraja"
   }
 }

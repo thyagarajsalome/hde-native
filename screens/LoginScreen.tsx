@@ -10,11 +10,40 @@ import {
   Platform,
   ActivityIndicator,
   Alert,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
+import * as WebBrowser from "expo-web-browser";
+import * as Linking from "expo-linking";
+import Svg, { Path } from "react-native-svg";
+
+WebBrowser.maybeCompleteAuthSession();
+
+const GoogleIcon = ({ size = 20, style }: { size?: number; style?: any }) => (
+  <View style={style}>
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path
+        fill="#4285F4"
+        d="M23.745 12.27c0-.7-.07-1.4-.19-2.07H12v3.91h6.67c-.29 1.53-1.14 2.82-2.4 3.68v3.06h3.88c2.27-2.09 3.59-5.17 3.59-8.58z"
+      />
+      <Path
+        fill="#34A853"
+        d="M12 24c3.24 0 5.97-1.08 7.96-2.91l-3.88-3.06c-1.08.72-2.45 1.16-4.08 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.17C3.28 20.35 7.42 24 12 24z"
+      />
+      <Path
+        fill="#FBBC05"
+        d="M5.27 14.23A7.17 7.17 0 0 1 4.88 12c0-.79.13-1.57.39-2.28V6.55H1.29A11.94 11.94 0 0 0 0 12c0 2.01.5 3.91 1.29 5.56l3.98-3.33z"
+      />
+      <Path
+        fill="#EA4335"
+        d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.44-3.44C17.97 1.08 15.24 0 12 0 7.42 0 3.28 3.65 1.29 7.64l3.98 3.33c.95-2.85 3.6-4.96 6.73-4.96z"
+      />
+    </Svg>
+  </View>
+);
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, "Login">;
 
@@ -26,7 +55,82 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      const redirectUrl = Linking.createURL("auth/callback");
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: true,
+        },
+      });
+
+      if (error) throw error;
+      if (!data?.url) {
+        throw new Error("No authorization URL returned from Supabase.");
+      }
+
+      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
+
+      if (res.type === "success" && res.url) {
+        // Parse access_token and refresh_token from the redirected hash URL
+        const hash = res.url.split("#")[1];
+        if (hash) {
+          const params = hash.split("&").reduce((acc, current) => {
+            const [key, value] = current.split("=");
+            acc[key] = decodeURIComponent(value);
+            return acc;
+          }, {} as Record<string, string>);
+
+          const accessToken = params["access_token"];
+          const refreshToken = params["refresh_token"];
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+            navigation.navigate("MainTabs");
+            return;
+          }
+        }
+
+        // Fallback: Parse from query parameters if present
+        const queryParams = res.url.split("?")[1];
+        if (queryParams) {
+          const params = queryParams.split("&").reduce((acc, current) => {
+            const [key, value] = current.split("=");
+            acc[key] = decodeURIComponent(value);
+            return acc;
+          }, {} as Record<string, string>);
+
+          const accessToken = params["access_token"];
+          const refreshToken = params["refresh_token"];
+
+          if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken,
+            });
+            if (sessionError) throw sessionError;
+            navigation.navigate("MainTabs");
+            return;
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error("Google Sign-In error:", error);
+      Alert.alert("Google Sign-In Failed", error.message || "An error occurred during Google sign in.");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -64,10 +168,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <View style={styles.logoBadge}>
-              <Ionicons name="home" size={32} color="#D9A443" />
-            </View>
-            <Text style={styles.title}>Home Design English</Text>
+            <Image
+              source={require("../assets/images/logo.png")}
+              style={styles.loginLogo}
+              resizeMode="contain"
+            />
+            <Text style={styles.title}>HDE</Text>
             <Text style={styles.subtitle}>Sign in to save estimates and sync projects</Text>
           </View>
 
@@ -118,12 +224,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
             <TouchableOpacity
               style={styles.btnPrimary}
               onPress={handleLogin}
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
               {loading ? (
                 <ActivityIndicator color="#1E293B" />
               ) : (
                 <Text style={styles.btnText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.dividerContainer}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>OR</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={styles.btnGoogle}
+              onPress={handleGoogleSignIn}
+              disabled={loading || googleLoading}
+            >
+              {googleLoading ? (
+                <ActivityIndicator color="#1E293B" />
+              ) : (
+                <>
+                  <GoogleIcon size={18} style={styles.googleIcon} />
+                  <Text style={styles.btnGoogleText}>Sign In with Google</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -157,19 +284,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 36,
   },
-  logoBadge: {
+  loginLogo: {
     width: 64,
     height: 64,
     borderRadius: 16,
-    backgroundColor: "#1E293B",
-    justifyContent: "center",
-    alignItems: "center",
     marginBottom: 16,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
   },
   title: {
     fontSize: 24,
@@ -233,6 +352,46 @@ const styles = StyleSheet.create({
     color: "#1E293B",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  dividerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 18,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E2E8F0",
+  },
+  dividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#94A3B8",
+  },
+  btnGoogle: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    height: 48,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    marginBottom: 8,
+  },
+  googleIcon: {
+    marginRight: 8,
+  },
+  btnGoogleText: {
+    color: "#1E293B",
+    fontSize: 15,
+    fontWeight: "600",
   },
   footer: {
     flexDirection: "row",

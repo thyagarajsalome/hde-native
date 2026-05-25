@@ -17,6 +17,7 @@ import { supabase } from "../services/supabaseClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
+import Slider from "@react-native-community/slider";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const PARKING_RATE_FACTOR = 0.7;
@@ -301,30 +302,43 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
           <head>
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             <style>
-              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 20px; color: #1E293B; }
-              .header { border-bottom: 2px solid #D9A443; padding-bottom: 10px; margin-bottom: 20px; }
-              .title { font-size: 22px; font-weight: bold; color: #1E293B; }
-              .meta { font-size: 11px; color: #64748B; margin-top: 6px; }
-              .table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              .table th { background-color: #1E293B; color: #FFFFFF; text-align: left; padding: 10px; font-size: 13px; }
-              .total-box { margin-top: 30px; background-color: #F8FAFC; border: 1px solid #E2E8F0; padding: 16px; border-radius: 12px; }
-              .total-lbl { font-size: 12px; color: #64748B; text-transform: uppercase; font-weight: bold; }
-              .total-val { font-size: 24px; font-weight: bold; color: #D9A443; margin-top: 4px; }
-              .footer { margin-top: 50px; font-size: 9px; color: #94A3B8; font-style: italic; text-align: center; }
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 24px; color: #1E293B; background-color: #FFFFFF; }
+              .report-header { border-bottom: 3px solid #D9A443; padding-bottom: 12px; margin-bottom: 20px; }
+              .logo-title { font-size: 24px; font-weight: 800; color: #1E293B; letter-spacing: 0.5px; margin: 0; }
+              .logo-title span { color: #D9A443; }
+              .report-tag { font-size: 11px; color: #64748B; margin-top: 6px; font-weight: bold; text-transform: uppercase; }
+              .table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 20px; }
+              .table th { background-color: #1E293B; color: #FFFFFF; text-align: left; padding: 10px 12px; font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+              .table td { padding: 10px 12px; border-bottom: 1px solid #E2E8F0; font-size: 11px; color: #334155; }
+              .total-box { background-color: #FFFDF5; border: 1px solid #FCD34D; padding: 18px; border-radius: 8px; margin-top: 20px; margin-bottom: 30px; }
+              .total-lbl { font-size: 11px; color: #78350F; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+              .total-val { font-size: 26px; font-weight: 800; color: #B45309; margin-top: 4px; }
+              .sign-section { width: 100%; border-collapse: collapse; margin-top: 40px; }
+              .sign-box { font-size: 11px; color: #64748B; vertical-align: top; }
+              .sign-line { width: 180px; border-bottom: 1px solid #94A3B8; margin-top: 20px; height: 10px; }
+              .footer { margin-top: 30px; font-size: 9px; color: #94A3B8; text-align: center; border-top: 1px solid #E2E8F0; padding-top: 12px; line-height: 14px; }
             </style>
           </head>
           <body>
-            <div class="header">
-              <div class="title">HOME DESIGN ENGLISH (HDE)</div>
-              <div class="meta">HOUSE CONSTRUCTION COST REPORT • Generated on ${formattedDate}</div>
+            <div class="report-header">
+              <h1 class="logo-title">HOME DESIGN <span>ENGLISH</span></h1>
+              <div class="report-tag">HOUSE CONSTRUCTION COST REPORT • Generated on ${formattedDate}</div>
             </div>
-            <h3>Project Inputs:</h3>
-            <p><strong>Built-up Area:</strong> ${area} sq.ft</p>
-            <p><strong>Parking Area:</strong> ${parkingArea || "0"} sq.ft</p>
-            <p><strong>Compound Wall:</strong> ${compoundWallLength || "0"} ft</p>
-            <p><strong>Sump Tank Included:</strong> ${includeSump ? "Yes" : "No"}</p>
-            <p><strong>Material Quality:</strong> ${quality.toUpperCase()}</p>
-            <p><strong>Estimate Rate:</strong> ₹${customRate}/sq.ft</p>
+
+            <table style="width: 100%; margin-bottom: 20px; background-color: #F8FAFC; border: 1px solid #E2E8F0; border-collapse: collapse; border-radius: 8px;">
+              <tr>
+                <td style="padding: 12px 16px; border: 0; width: 50%; font-size: 12px; color: #475569; line-height: 1.6; vertical-align: top;">
+                  <strong>Built-up Area:</strong> ${area} sq.ft<br/>
+                  <strong>Parking Area:</strong> ${parkingArea || "0"} sq.ft<br/>
+                  <strong>Compound Wall:</strong> ${compoundWallLength || "0"} ft
+                </td>
+                <td style="padding: 12px 16px; border: 0; width: 50%; font-size: 12px; color: #475569; line-height: 1.6; vertical-align: top;">
+                  <strong>Sump Tank Included:</strong> ${includeSump ? "Yes" : "No"}<br/>
+                  <strong>Material Quality:</strong> ${quality.toUpperCase()}<br/>
+                  <strong>Base Estimation Rate:</strong> ₹${customRate}/sq.ft
+                </td>
+              </tr>
+            </table>
 
             <table class="table">
               <thead>
@@ -367,8 +381,23 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
               <div class="total-val">${formattedTotal}</div>
             </div>
 
+            <table class="sign-section">
+              <tr>
+                <td class="sign-box" style="width: 50%;">
+                  Prepared By:<br/>
+                  <div class="sign-line"></div>
+                  <span style="font-size: 9px; margin-top: 4px; display: block;">HDE Automated Estimator</span>
+                </td>
+                <td class="sign-box" style="width: 50%; text-align: right;">
+                  Client Approval:<br/>
+                  <div class="sign-line" style="margin-left: auto;"></div>
+                  <span style="font-size: 9px; margin-top: 4px; display: block;">Signature / Date</span>
+                </td>
+              </tr>
+            </table>
+
             <div class="footer">
-              This report is for general budgeting purposes based on regional cost templates and should be verified with your contractor.
+              This report is for general budgeting purposes based on regional cost templates and should be verified with your contractor. Local material availability, site conditions, and contractor margins govern final rates.
             </div>
           </body>
         </html>`;
@@ -399,6 +428,20 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
               onChangeText={setArea}
             />
           </View>
+          <View style={styles.sliderRow}>
+            <Slider
+              style={styles.slider}
+              minimumValue={500}
+              maximumValue={5000}
+              step={50}
+              value={parseFloat(area) || 500}
+              onValueChange={(val) => setArea(String(val))}
+              minimumTrackTintColor="#D9A443"
+              maximumTrackTintColor="#CBD5E1"
+              thumbTintColor="#D9A443"
+            />
+            <Text style={styles.sliderValueText}>{parseFloat(area) || 500} sqft</Text>
+          </View>
         </View>
 
         <View style={styles.inputContainer}>
@@ -413,6 +456,20 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
               onChangeText={setParkingArea}
             />
           </View>
+          <View style={styles.sliderRow}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={1000}
+              step={10}
+              value={parseFloat(parkingArea) || 0}
+              onValueChange={(val) => setParkingArea(String(val))}
+              minimumTrackTintColor="#D9A443"
+              maximumTrackTintColor="#CBD5E1"
+              thumbTintColor="#D9A443"
+            />
+            <Text style={styles.sliderValueText}>{parseFloat(parkingArea) || 0} sqft</Text>
+          </View>
         </View>
 
         <View style={styles.inputContainer}>
@@ -426,6 +483,20 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
               value={compoundWallLength}
               onChangeText={setCompoundWallLength}
             />
+          </View>
+          <View style={styles.sliderRow}>
+            <Slider
+              style={styles.slider}
+              minimumValue={0}
+              maximumValue={500}
+              step={10}
+              value={parseFloat(compoundWallLength) || 0}
+              onValueChange={(val) => setCompoundWallLength(String(val))}
+              minimumTrackTintColor="#D9A443"
+              maximumTrackTintColor="#CBD5E1"
+              thumbTintColor="#D9A443"
+            />
+            <Text style={styles.sliderValueText}>{parseFloat(compoundWallLength) || 0} ft</Text>
           </View>
         </View>
 
@@ -986,6 +1057,24 @@ const styles = StyleSheet.create({
     color: "#475569",
     fontSize: 15,
     fontWeight: "bold",
+  },
+  sliderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
+    paddingHorizontal: 4,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
+  },
+  sliderValueText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: "#D9A443",
+    marginLeft: 8,
+    minWidth: 70,
+    textAlign: "right",
   },
 });
 

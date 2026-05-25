@@ -5,6 +5,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+
 # Expo
 .expo/
 *.jks
@@ -31,3 +32,6 @@ android/
 
 expo-env.d.ts
 # @end expo-cli
+
+*.keystore
+signing.keystore
