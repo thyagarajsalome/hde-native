@@ -14,7 +14,6 @@
     },
     "android": {
       "package": "in.toolwebsite.twa",
-      "versionCode": 10,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1E293B"
@@ -44,7 +43,7 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "2.0.21",
+            "kotlinVersion": "1.9.25",
             "minSdkVersion": 24,
             "compileSdkVersion": 35,
             "targetSdkVersion": 35,
@@ -58,7 +57,11 @@
     "experiments": {
       "typedRoutes": false,
       "reactCompiler": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "75a08859-aa2b-4e94-94f4-93850940ff5d"
+      }
     }
-   
   }
 }
