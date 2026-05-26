@@ -20,7 +20,7 @@ import * as IAP from "react-native-iap";
 const plans = [
   {
     name: "Basic",
-    id: "hde_basic_plan_199",
+    id: "hde.basic.199",
     price: "199",
     originalPrice: "249",
     type: "once",
@@ -36,7 +36,7 @@ const plans = [
   },
   {
     name: "Standard",
-    id: "hde_standard_plan_349",
+    id: "hde.standard.349",
     price: "349",
     originalPrice: "499",
     type: "once",
@@ -54,7 +54,7 @@ const plans = [
   },
   {
     name: "Pro",
-    id: "hde_pro_plan_999",
+    id: "hde.pro.monthly",
     price: "999",
     originalPrice: "1,427",
     type: "mo",
@@ -80,8 +80,8 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const [subscriptionOffers, setSubscriptionOffers] = useState<{ [sku: string]: string }>({});
   const [loading, setLoading] = useState(false);
 
-  const itemSkus = ["hde_basic_plan_199", "hde_standard_plan_349"];
-  const subscriptionSkus = ["hde_pro_plan_999"];
+  const itemSkus = ["hde.basic.199", "hde.standard.349"];
+  const subscriptionSkus = ["hde.pro.monthly"];
 
   useEffect(() => {
     let purchaseUpdateSubscription: any;
@@ -160,13 +160,13 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     let tierName: "basic" | "standard" | "pro" = "basic";
     let creditsCount = 0;
 
-    if (purchase.productId === "hde_pro_plan_999") {
+    if (purchase.productId === "hde.pro.monthly") {
       tierName = "pro";
       creditsCount = 100;
-    } else if (purchase.productId === "hde_standard_plan_349") {
+    } else if (purchase.productId === "hde.standard.349") {
       tierName = "standard";
       creditsCount = 10;
-    } else if (purchase.productId === "hde_basic_plan_199") {
+    } else if (purchase.productId === "hde.basic.199") {
       tierName = "basic";
       creditsCount = 5;
     }
@@ -185,7 +185,17 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       if (error) throw error;
 
       await refreshProfile();
-      Alert.alert("Success", `Thank you for upgrading! Your account has been upgraded to the ${tierName.toUpperCase()} plan.`);
+      
+      let successMessage = "";
+      if (tierName === "pro") {
+        successMessage = "Pro account activated successfully!";
+      } else if (tierName === "standard") {
+        successMessage = "Credited 10 Projects successfully!";
+      } else if (tierName === "basic") {
+        successMessage = "Credited 5 Projects successfully!";
+      }
+      
+      Alert.alert("Payment Successful", successMessage);
     } catch (err: any) {
       console.error("Failed to update database profile:", err);
       Alert.alert("Update Error", "Payment was successful, but we failed to sync with the database. Please try using 'Restore Purchases'.");
@@ -254,15 +264,15 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         let restoredCredits = 0;
 
         for (const purchase of purchases) {
-          if (purchase.productId === "hde_pro_plan_999") {
+          if (purchase.productId === "hde.pro.monthly") {
             restoredTier = "pro";
             restoredCredits = 100;
-          } else if (purchase.productId === "hde_standard_plan_349") {
+          } else if (purchase.productId === "hde.standard.349") {
             if (restoredTier !== "pro") {
               restoredTier = "standard";
               restoredCredits = 10;
             }
-          } else if (purchase.productId === "hde_basic_plan_199") {
+          } else if (purchase.productId === "hde.basic.199") {
             if (restoredTier !== "pro" && restoredTier !== "standard") {
               restoredTier = "basic";
               restoredCredits = 5;
