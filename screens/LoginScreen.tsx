@@ -78,55 +78,61 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
 
       if (res.type === "success" && res.url) {
-        // Parse access_token and refresh_token from the redirected hash URL
-        const hash = res.url.split("#")[1];
-        if (hash) {
-          const params = hash.split("&").reduce((acc, current) => {
-            const [key, value] = current.split("=");
-            acc[key] = decodeURIComponent(value);
-            return acc;
-          }, {} as Record<string, string>);
-
-          const accessToken = params["access_token"];
-          const refreshToken = params["refresh_token"];
-
-          if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
+        // Robust parser helper
+        const getUrlParams = (url: string) => {
+          const params: Record<string, string> = {};
+          
+          // Parse hash values (e.g. #access_token=xxx&...)
+          const hashSplit = url.split("#");
+          if (hashSplit.length > 1) {
+            hashSplit[1].split("&").forEach((part) => {
+              const pair = part.split("=");
+              if (pair.length >= 2) {
+                params[pair[0]] = decodeURIComponent(pair[1]);
+              }
             });
-            if (sessionError) throw sessionError;
-            navigation.navigate("MainTabs");
-            return;
           }
-        }
-
-        // Fallback: Parse from query parameters if present
-        const queryParams = res.url.split("?")[1];
-        if (queryParams) {
-          const params = queryParams.split("&").reduce((acc, current) => {
-            const [key, value] = current.split("=");
-            acc[key] = decodeURIComponent(value);
-            return acc;
-          }, {} as Record<string, string>);
-
-          const accessToken = params["access_token"];
-          const refreshToken = params["refresh_token"];
-
-          if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken,
+          
+          // Parse query parameters (e.g. ?access_token=xxx&...)
+          const querySplit = url.split("?");
+          if (querySplit.length > 1) {
+            const queryPart = querySplit[1].split("#")[0];
+            queryPart.split("&").forEach((part) => {
+              const pair = part.split("=");
+              if (pair.length >= 2) {
+                params[pair[0]] = decodeURIComponent(pair[1]);
+              }
             });
-            if (sessionError) throw sessionError;
-            navigation.navigate("MainTabs");
-            return;
+          }
+          return params;
+        };
+
+        const params = getUrlParams(res.url);
+        const accessToken = params["access_token"];
+        const refreshToken = params["refresh_token"];
+
+        if (accessToken && refreshToken) {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (sessionError) throw sessionError;
+          navigation.navigate("MainTabs");
+          return;
+        } else {
+          // If no token was found, check if there is an error in the redirect URL parameters
+          const errorMsg = params["error_description"] || params["error"];
+          if (errorMsg) {
+            throw new Error(errorMsg.replace(/\+/g, " "));
           }
         }
       }
     } catch (error: any) {
       console.error("Google Sign-In error:", error);
-      Alert.alert("Google Sign-In Failed", error.message || "An error occurred during Google sign in.");
+      Alert.alert(
+        "Google Sign-In Failed",
+        error.message || "An error occurred during Google sign in. Please verify your Supabase configuration."
+      );
     } finally {
       setGoogleLoading(false);
     }
