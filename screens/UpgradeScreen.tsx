@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
   Text,
@@ -8,21 +8,19 @@ import {
   SafeAreaView,
   StatusBar,
   useWindowDimensions,
+  Alert,
+  ActivityIndicator,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as WebBrowser from "expo-web-browser";
-
-const handleUpgradePress = async () => {
-  try {
-    await WebBrowser.openBrowserAsync("https://homedesignenglish.com/upgrade");
-  } catch (error) {
-    console.error("Failed to open web browser:", error);
-  }
-};
+import { useUser } from "../context/UserContext";
+import { supabase } from "../services/supabaseClient";
+import * as IAP from "react-native-iap";
 
 const plans = [
   {
     name: "Basic",
+    id: "hde_basic_plan_199",
     price: "199",
     originalPrice: "249",
     type: "once",
@@ -38,6 +36,7 @@ const plans = [
   },
   {
     name: "Standard",
+    id: "hde_standard_plan_349",
     price: "349",
     originalPrice: "499",
     type: "once",
@@ -55,6 +54,7 @@ const plans = [
   },
   {
     name: "Pro",
+    id: "hde_pro_plan_999",
     price: "999",
     originalPrice: "1,427",
     type: "mo",
@@ -71,9 +71,232 @@ const plans = [
   },
 ];
 
-export const UpgradeScreen: React.FC = () => {
+export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { width } = useWindowDimensions();
   const isTablet = width > 768;
+
+  const { user, planTier, refreshProfile } = useUser();
+  const [purchasingId, setPurchasingId] = useState<string | null>(null);
+  const [subscriptionOffers, setSubscriptionOffers] = useState<{ [sku: string]: string }>({});
+  const [loading, setLoading] = useState(false);
+
+  const itemSkus = ["hde_basic_plan_199", "hde_standard_plan_349"];
+  const subscriptionSkus = ["hde_pro_plan_999"];
+
+  useEffect(() => {
+    let purchaseUpdateSubscription: any;
+    let purchaseErrorSubscription: any;
+
+    const initIAP = async () => {
+      try {
+        await IAP.initConnection();
+
+        try {
+          await IAP.fetchProducts({ skus: itemSkus, type: "in-app" });
+          const fetchedSubs = await IAP.fetchProducts({ skus: subscriptionSkus, type: "subs" });
+          
+          if (fetchedSubs && fetchedSubs.length > 0) {
+            const offersMap: { [sku: string]: string } = {};
+            fetchedSubs.forEach((sub: any) => {
+              if (sub.subscriptionOffers && sub.subscriptionOffers.length > 0) {
+                const firstOffer = sub.subscriptionOffers[0];
+                if (firstOffer && firstOffer.offerToken) {
+                  offersMap[sub.productId] = firstOffer.offerToken;
+                }
+              }
+            });
+            setSubscriptionOffers(offersMap);
+          }
+        } catch (fetchErr) {
+          console.warn("Failed to fetch product information from store:", fetchErr);
+        }
+
+        purchaseUpdateSubscription = IAP.purchaseUpdatedListener(async (purchase) => {
+          const receipt = purchase.purchaseToken;
+          if (receipt) {
+            try {
+              setLoading(true);
+              await handlePurchaseSuccess(purchase);
+              await IAP.finishTransaction({ purchase, isConsumable: false });
+            } catch (err) {
+              console.error("Error finishing transaction:", err);
+            } finally {
+              setLoading(false);
+            }
+          }
+        });
+
+        purchaseErrorSubscription = IAP.purchaseErrorListener((error) => {
+          console.warn("Purchase error listener triggered:", error);
+          if (error.code !== IAP.ErrorCode.UserCancelled) {
+            Alert.alert("Purchase Failed", error.message || "Payment could not be completed.");
+          }
+        });
+
+      } catch (err) {
+        console.warn("IAP connection failed:", err);
+      }
+    };
+
+    initIAP();
+
+    return () => {
+      if (purchaseUpdateSubscription) {
+        purchaseUpdateSubscription.remove();
+      }
+      if (purchaseErrorSubscription) {
+        purchaseErrorSubscription.remove();
+      }
+      IAP.endConnection();
+    };
+  }, [user]);
+
+  const handlePurchaseSuccess = async (purchase: IAP.Purchase) => {
+    if (!user) {
+      Alert.alert("Error", "No user logged in. Purchase could not be synced.");
+      return;
+    }
+
+    let tierName: "basic" | "standard" | "pro" = "basic";
+    let creditsCount = 0;
+
+    if (purchase.productId === "hde_pro_plan_999") {
+      tierName = "pro";
+      creditsCount = 100;
+    } else if (purchase.productId === "hde_standard_plan_349") {
+      tierName = "standard";
+      creditsCount = 10;
+    } else if (purchase.productId === "hde_basic_plan_199") {
+      tierName = "basic";
+      creditsCount = 5;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          has_paid: true,
+          plan_tier: tierName,
+          credits: creditsCount,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+
+      if (error) throw error;
+
+      await refreshProfile();
+      Alert.alert("Success", `Thank you for upgrading! Your account has been upgraded to the ${tierName.toUpperCase()} plan.`);
+    } catch (err: any) {
+      console.error("Failed to update database profile:", err);
+      Alert.alert("Update Error", "Payment was successful, but we failed to sync with the database. Please try using 'Restore Purchases'.");
+    }
+  };
+
+  const handleBuyPlan = async (planId: string, planType: string) => {
+    if (!user) {
+      Alert.alert(
+        "Authentication Required",
+        "Please sign in or sign up before purchasing so we can sync your upgrade layout across your devices.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Sign In", onPress: () => navigation.navigate("Login") },
+        ]
+      );
+      return;
+    }
+
+    try {
+      setPurchasingId(planId);
+      if (planType === "once") {
+        await IAP.requestPurchase({
+          request: {
+            google: { skus: [planId] },
+            apple: { sku: planId }
+          },
+          type: "in-app"
+        });
+      } else {
+        const offerToken = subscriptionOffers[planId];
+        if (Platform.OS === "android" && !offerToken) {
+          Alert.alert("Store Error", "Could not retrieve the subscription offer details from Google Play.");
+          return;
+        }
+        await IAP.requestPurchase({
+          request: {
+            google: {
+              skus: [planId],
+              subscriptionOffers: [{ sku: planId, offerToken: offerToken || "" }]
+            },
+            apple: { sku: planId }
+          },
+          type: "subs"
+        });
+      }
+    } catch (err: any) {
+      console.error("In-app purchase request error:", err);
+      Alert.alert("Purchase Error", err.message || "Failed to launch native checkout.");
+    } finally {
+      setPurchasingId(null);
+    }
+  };
+
+  const handleRestorePurchases = async () => {
+    if (!user) {
+      Alert.alert("Authentication Required", "Please sign in to restore purchases.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const purchases = await IAP.getAvailablePurchases();
+      if (purchases && purchases.length > 0) {
+        let restoredTier: "basic" | "standard" | "pro" | null = null;
+        let restoredCredits = 0;
+
+        for (const purchase of purchases) {
+          if (purchase.productId === "hde_pro_plan_999") {
+            restoredTier = "pro";
+            restoredCredits = 100;
+          } else if (purchase.productId === "hde_standard_plan_349") {
+            if (restoredTier !== "pro") {
+              restoredTier = "standard";
+              restoredCredits = 10;
+            }
+          } else if (purchase.productId === "hde_basic_plan_199") {
+            if (restoredTier !== "pro" && restoredTier !== "standard") {
+              restoredTier = "basic";
+              restoredCredits = 5;
+            }
+          }
+        }
+
+        if (restoredTier) {
+          const { error } = await supabase
+            .from("profiles")
+            .update({
+              has_paid: true,
+              plan_tier: restoredTier,
+              credits: restoredCredits,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", user.id);
+
+          if (error) throw error;
+          await refreshProfile();
+          Alert.alert("Success", "Your purchases have been successfully restored!");
+        } else {
+          Alert.alert("No Purchases Found", "No active digital plans were found for your Google account.");
+        }
+      } else {
+        Alert.alert("No Purchases Found", "No active digital plans were found for your Google account.");
+      }
+    } catch (err: any) {
+      console.error("Restore purchase error:", err);
+      Alert.alert("Restore Error", err.message || "Failed to restore purchases.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -100,53 +323,81 @@ export const UpgradeScreen: React.FC = () => {
 
         {/* Plans Stack */}
         <View style={[styles.plansContainer, isTablet && styles.plansContainerTablet]}>
-          {plans.map((plan, idx) => (
-            <View key={idx} style={[styles.planCard, plan.badge ? styles.planCardActive : null, isTablet && styles.planCardTablet]}>
-              {plan.badge && (
-                <View style={styles.badgeContainer}>
-                  <Text style={styles.badgeText}>{plan.badge}</Text>
-                </View>
-              )}
+          {plans.map((plan, idx) => {
+            const isActive = planTier === plan.name.toLowerCase();
+            return (
+              <View key={idx} style={[styles.planCard, plan.badge ? styles.planCardActive : null, isTablet && styles.planCardTablet]}>
+                {plan.badge && (
+                  <View style={styles.badgeContainer}>
+                    <Text style={styles.badgeText}>{plan.badge}</Text>
+                  </View>
+                )}
 
-              <View style={styles.planHeader}>
-                <View>
-                  <Text style={styles.planName}>{plan.name}</Text>
-                  <View style={styles.priceRow}>
-                    <Text style={styles.planPrice}>₹{plan.price}</Text>
-                    <Text style={styles.planDuration}>/{plan.type}</Text>
-                    <Text style={styles.originalPrice}>₹{plan.originalPrice}</Text>
+                <View style={styles.planHeader}>
+                  <View>
+                    <Text style={styles.planName}>{plan.name}</Text>
+                    <View style={styles.priceRow}>
+                      <Text style={styles.planPrice}>₹{plan.price}</Text>
+                      <Text style={styles.planDuration}>/{plan.type}</Text>
+                      <Text style={styles.originalPrice}>₹{plan.originalPrice}</Text>
+                    </View>
+                  </View>
+                  <View style={[styles.iconBox, { backgroundColor: plan.color + "15" }]}>
+                    <Ionicons name={plan.icon as any} size={20} color={plan.color} />
                   </View>
                 </View>
-                <View style={[styles.iconBox, { backgroundColor: plan.color + "15" }]}>
-                  <Ionicons name={plan.icon as any} size={20} color={plan.color} />
+
+                <View style={styles.creditBox}>
+                  <Text style={[styles.creditText, { color: plan.color }]}>{plan.credits}</Text>
                 </View>
-              </View>
 
-              <View style={styles.creditBox}>
-                <Text style={[styles.creditText, { color: plan.color }]}>{plan.credits}</Text>
-              </View>
+                <View style={styles.featuresList}>
+                  {plan.features.map((feat, fIdx) => (
+                    <View key={fIdx} style={styles.featureRow}>
+                      <Ionicons name="checkmark-circle" size={16} color="#10B981" style={{ marginRight: 8 }} />
+                      <Text style={styles.featureText}>{feat}</Text>
+                    </View>
+                  ))}
+                </View>
 
-              <View style={styles.featuresList}>
-                {plan.features.map((feat, fIdx) => (
-                  <View key={fIdx} style={styles.featureRow}>
-                    <Ionicons name="checkmark-circle" size={16} color="#10B981" style={{ marginRight: 8 }} />
-                    <Text style={styles.featureText}>{feat}</Text>
-                  </View>
-                ))}
+                <TouchableOpacity
+                  style={[
+                    styles.btnBuyPlan,
+                    { backgroundColor: plan.color },
+                    isActive && styles.btnBuyPlanDisabled
+                  ]}
+                  onPress={() => handleBuyPlan(plan.id, plan.type === "once" ? "once" : "sub")}
+                  disabled={isActive || purchasingId !== null}
+                >
+                  <Text style={styles.btnBuyPlanText}>
+                    {isActive 
+                      ? "Current Plan" 
+                      : purchasingId === plan.id 
+                        ? "Processing..." 
+                        : `Buy ${plan.name}`}
+                  </Text>
+                </TouchableOpacity>
               </View>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
-        <TouchableOpacity style={styles.btnUpgrade} onPress={handleUpgradePress}>
-          <Text style={styles.btnUpgradeText}>Upgrade on Web Account</Text>
-          <Ionicons name="open-outline" size={16} color="#1E293B" style={{ marginLeft: 6 }} />
+        <TouchableOpacity style={styles.btnRestore} onPress={handleRestorePurchases}>
+          <Ionicons name="refresh-circle" size={20} color="#D9A443" style={{ marginRight: 6 }} />
+          <Text style={styles.btnRestoreText}>Restore Purchases</Text>
         </TouchableOpacity>
-        
+
         <Text style={styles.footerNote}>
-          Payments are processed securely via homedesignenglish.com. Once completed, your mobile app account will unlock automatically!
+          Payments are processed securely via Google Play. Subscription plans will bill monthly and can be managed or canceled anytime in your Play Store Subscription settings.
         </Text>
       </ScrollView>
+
+      {loading && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#D9A443" />
+          <Text style={styles.loadingText}>Syncing payment details...</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -300,6 +551,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
     paddingTop: 10,
+    marginBottom: 12,
   },
   featureRow: {
     flexDirection: "row",
@@ -310,22 +562,34 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#475569",
   },
-  btnUpgrade: {
-    backgroundColor: "#D9A443",
+  btnBuyPlan: {
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 8,
+  },
+  btnBuyPlanDisabled: {
+    backgroundColor: "#E2E8F0",
+  },
+  btnBuyPlanText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  btnRestore: {
+    backgroundColor: "#FFFFFF",
+    borderColor: "#E2E8F0",
+    borderWidth: 1,
     flexDirection: "row",
     height: 48,
     borderRadius: 12,
     justifyContent: "center",
     alignItems: "center",
     width: "100%",
-    shadowColor: "#D9A443",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 2,
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  btnUpgradeText: {
+  btnRestoreText: {
     color: "#1E293B",
     fontSize: 15,
     fontWeight: "bold",
@@ -336,6 +600,18 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 14,
     paddingHorizontal: 12,
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(15, 23, 42, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  loadingText: {
+    color: "#FFFFFF",
+    marginTop: 12,
+    fontWeight: "bold",
   },
 });
 
