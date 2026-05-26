@@ -110,6 +110,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
         const params = getUrlParams(res.url);
         const accessToken = params["access_token"];
         const refreshToken = params["refresh_token"];
+        const code = params["code"];
 
         if (accessToken && refreshToken) {
           const { error: sessionError } = await supabase.auth.setSession({
@@ -119,12 +120,18 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
           if (sessionError) throw sessionError;
           navigation.navigate("MainTabs");
           return;
+        } else if (code) {
+          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+          if (exchangeError) throw exchangeError;
+          navigation.navigate("MainTabs");
+          return;
         } else {
           // If no token was found, check if there is an error in the redirect URL parameters
           const errorMsg = params["error_description"] || params["error"];
           if (errorMsg) {
             throw new Error(errorMsg.replace(/\+/g, " "));
           }
+          throw new Error("No authentication tokens or authorization code returned.");
         }
       }
     } catch (error: any) {
