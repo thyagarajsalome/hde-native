@@ -6,11 +6,11 @@ import {
   ScrollView,
   TextInput,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { supabase } from "../services/supabaseClient";
 import { useUser } from "../context/UserContext";
 
@@ -42,6 +42,7 @@ const INDIAN_CITIES = [
 
 export const ProRegistrationScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
   const { user, loading: authLoading } = useUser();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [isExisting, setIsExisting] = useState(false);
@@ -189,8 +190,8 @@ export const ProRegistrationScreen: React.FC<{ navigation: any }> = ({ navigatio
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 30 }]}>
         {isExisting && (
           <View style={styles.deleteCard}>
             <View style={{ flex: 1, paddingRight: 8 }}>
@@ -359,7 +360,7 @@ export const ProRegistrationScreen: React.FC<{ navigation: any }> = ({ navigatio
           )}
         </TouchableOpacity>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

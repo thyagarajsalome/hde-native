@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -12,6 +12,7 @@ import {
   Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../services/supabaseClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -45,8 +46,376 @@ const BREAKDOWN_PERCENTAGES: Record<string, number> = {
   Finishing: 20, "Elec/Plumbing": 10, Miscellaneous: 6,
 };
 
+interface FormStepProps {
+  area: string;
+  setArea: (val: string) => void;
+  parkingArea: string;
+  setParkingArea: (val: string) => void;
+  compoundWallLength: string;
+  setCompoundWallLength: (val: string) => void;
+  includeSump: boolean;
+  setIncludeSump: (val: boolean) => void;
+  quality: "basic" | "standard" | "premium";
+  setQuality: (val: "basic" | "standard" | "premium") => void;
+  isEditingRate: boolean;
+  setIsEditingRate: (val: boolean) => void;
+  customRate: number;
+  setCustomRate: (val: number) => void;
+  parsedArea: number;
+  setWizardStep: (step: number) => void;
+}
+
+const FormStep = React.memo(({
+  area,
+  setArea,
+  parkingArea,
+  setParkingArea,
+  compoundWallLength,
+  setCompoundWallLength,
+  includeSump,
+  setIncludeSump,
+  quality,
+  setQuality,
+  isEditingRate,
+  setIsEditingRate,
+  customRate,
+  setCustomRate,
+  parsedArea,
+  setWizardStep,
+}: FormStepProps) => {
+  return (
+    <View style={styles.formContainer}>
+      <Text style={styles.sectionTitle}>1. Project Dimension Inputs</Text>
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Built-up Area (Sq.Ft)*</Text>
+        <View style={styles.inputWrapper}>
+          <Ionicons name="resize" size={18} color="#64748B" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 1500"
+            keyboardType="numeric"
+            value={area}
+            onChangeText={setArea}
+          />
+        </View>
+        <View style={styles.sliderRow}>
+          <Slider
+            style={styles.slider}
+            minimumValue={500}
+            maximumValue={5000}
+            step={50}
+            value={parseFloat(area) || 500}
+            onValueChange={(val) => setArea(String(val))}
+            minimumTrackTintColor="#D9A443"
+            maximumTrackTintColor="#CBD5E1"
+            thumbTintColor="#D9A443"
+          />
+          <Text style={styles.sliderValueText}>{parseFloat(area) || 500} sqft</Text>
+        </View>
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Parking Area (Sq.Ft)</Text>
+        <View style={styles.inputWrapper}>
+          <Ionicons name="car" size={18} color="#64748B" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 200"
+            keyboardType="numeric"
+            value={parkingArea}
+            onChangeText={setParkingArea}
+          />
+        </View>
+        <View style={styles.sliderRow}>
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={1000}
+            step={10}
+            value={parseFloat(parkingArea) || 0}
+            onValueChange={(val) => setParkingArea(String(val))}
+            minimumTrackTintColor="#D9A443"
+            maximumTrackTintColor="#CBD5E1"
+            thumbTintColor="#D9A443"
+          />
+          <Text style={styles.sliderValueText}>{parseFloat(parkingArea) || 0} sqft</Text>
+        </View>
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Compound Wall Length (Running Feet)</Text>
+        <View style={styles.inputWrapper}>
+          <Ionicons name="git-commit" size={18} color="#64748B" style={styles.inputIcon} />
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 120"
+            keyboardType="numeric"
+            value={compoundWallLength}
+            onChangeText={setCompoundWallLength}
+          />
+        </View>
+        <View style={styles.sliderRow}>
+          <Slider
+            style={styles.slider}
+            minimumValue={0}
+            maximumValue={500}
+            step={10}
+            value={parseFloat(compoundWallLength) || 0}
+            onValueChange={(val) => setCompoundWallLength(String(val))}
+            minimumTrackTintColor="#D9A443"
+            maximumTrackTintColor="#CBD5E1"
+            thumbTintColor="#D9A443"
+          />
+          <Text style={styles.sliderValueText}>{parseFloat(compoundWallLength) || 0} ft</Text>
+        </View>
+      </View>
+
+      <View style={styles.switchRow}>
+        <View style={styles.switchText}>
+          <Text style={styles.switchLabel}>Include Under-ground Sump Tank</Text>
+          <Text style={styles.switchDesc}>Estimated capacity rates based on quality tier.</Text>
+        </View>
+        <Switch value={includeSump} onValueChange={setIncludeSump} trackColor={{ true: "#D9A443" }} />
+      </View>
+
+      <Text style={styles.sectionTitle}>2. Material & Finishing Quality</Text>
+      <View style={styles.qualityRow}>
+        {(["basic", "standard", "premium"] as const).map((q) => (
+          <TouchableOpacity
+            key={q}
+            style={[
+              styles.qualityBtn,
+              quality === q ? styles.qualityBtnActive : null,
+            ]}
+            onPress={() => setQuality(q)}
+          >
+            <Text style={[styles.qualityBtnText, quality === q ? styles.qualityBtnTextActive : null]}>
+              {QUALITY_INFO[q].label}
+            </Text>
+            <Text style={[styles.qualityPrice, quality === q ? styles.qualityPriceActive : null]}>
+              ₹{QUALITY_RATES[q]}/sqft
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Custom Rate Panel */}
+      <View style={styles.ratePanel}>
+        <View style={styles.rateHeader}>
+          <Text style={styles.rateLabel}>Estimated Base Rate per Sqft:</Text>
+          <TouchableOpacity onPress={() => setIsEditingRate(!isEditingRate)}>
+            <Text style={styles.editRateBtn}>{isEditingRate ? "Reset" : "Edit Rate"}</Text>
+          </TouchableOpacity>
+        </View>
+        {isEditingRate ? (
+          <View style={styles.inputWrapperSmall}>
+            <Text style={styles.currencySymbol}>₹</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="numeric"
+              value={String(customRate)}
+              onChangeText={(val) => setCustomRate(parseInt(val, 10) || 0)}
+            />
+          </View>
+        ) : (
+          <Text style={styles.rateValue}>₹{customRate} / sq.ft</Text>
+        )}
+      </View>
+
+      <TouchableOpacity
+        style={styles.btnPrimary}
+        onPress={() => {
+          if (!area || parsedArea <= 0) {
+            Alert.alert("Missing Input", "Please enter a valid Built-up Area");
+            return;
+          }
+          setWizardStep(2);
+        }}
+      >
+        <Text style={styles.btnText}>Calculate Construction Cost</Text>
+        <Ionicons name="arrow-forward" size={18} color="#1E293B" style={styles.iconMarginLeft6} />
+      </TouchableOpacity>
+    </View>
+  );
+});
+
+interface ResultsStepProps {
+  finalTotalCost: number;
+  perSqftCost: number;
+  isSaving: boolean;
+  isExporting: boolean;
+  activeResultsTab: "breakdown" | "savings";
+  setActiveResultsTab: (tab: "breakdown" | "savings") => void;
+  selectedSavings: string[];
+  toggleSavingOption: (option: string) => void;
+  breakdownData: Record<string, number>;
+  parsedArea: number;
+  quality: "basic" | "standard" | "premium";
+  includeSump: boolean;
+  handleSave: () => void;
+  handleExportPDF: () => void;
+  setWizardStep: (step: number) => void;
+}
+
+const ResultsStep = React.memo(({
+  finalTotalCost,
+  perSqftCost,
+  isSaving,
+  isExporting,
+  activeResultsTab,
+  setActiveResultsTab,
+  selectedSavings,
+  toggleSavingOption,
+  breakdownData,
+  parsedArea,
+  quality,
+  includeSump,
+  handleSave,
+  handleExportPDF,
+  setWizardStep,
+}: ResultsStepProps) => {
+  const formattedTotal = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(finalTotalCost);
+  const formattedPerSqft = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(perSqftCost);
+
+  return (
+    <View style={styles.resultsContainer}>
+      {/* KPI Strip */}
+      <View style={styles.kpiCard}>
+        <Text style={styles.kpiTitle}>Total Estimated Budget</Text>
+        <Text style={styles.kpiValue}>{formattedTotal}</Text>
+        <Text style={styles.kpiSub}>Average Rate: {formattedPerSqft} / sq.ft</Text>
+      </View>
+
+      {/* Action Bar */}
+      <View style={styles.actionBar}>
+        <TouchableOpacity style={styles.btnAction} onPress={handleSave} disabled={isSaving}>
+          {isSaving ? (
+            <ActivityIndicator color="#64748B" />
+          ) : (
+            <>
+              <Ionicons name="save-outline" size={18} color="#475569" />
+              <Text style={styles.btnActionText}>Save Project</Text>
+            </>
+          )}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.btnAction} onPress={handleExportPDF} disabled={isExporting}>
+          {isExporting ? (
+            <ActivityIndicator color="#64748B" />
+          ) : (
+            <>
+              <Ionicons name="share-outline" size={18} color="#475569" />
+              <Text style={styles.btnActionText}>Export PDF</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* Tab Controls */}
+      <View style={styles.resultsTabs}>
+        <TouchableOpacity
+          style={[styles.resultsTabBtn, activeResultsTab === "breakdown" ? styles.resultsTabBtnActive : null]}
+          onPress={() => setActiveResultsTab("breakdown")}
+        >
+          <Text style={[styles.resultsTabBtnText, activeResultsTab === "breakdown" ? styles.resultsTabBtnTextActive : null]}>
+            Phase Breakdown
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.resultsTabBtn, activeResultsTab === "savings" ? styles.resultsTabBtnActive : null]}
+          onPress={() => setActiveResultsTab("savings")}
+        >
+          <Text style={[styles.resultsTabBtnText, activeResultsTab === "savings" ? styles.resultsTabBtnTextActive : null]}>
+            Savings Advisor
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeResultsTab === "breakdown" ? (
+        <View style={styles.breakdownBox}>
+          <Text style={styles.boxTitle}>Estimated Cost Splits by Phase</Text>
+          {Object.entries(breakdownData).map(([phase, cost]) => (
+            <View key={phase} style={styles.breakdownRow}>
+              <Text style={styles.breakdownPhase}>{phase}</Text>
+              <Text style={styles.breakdownCost}>
+                {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(cost)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <View style={styles.savingsBox}>
+          <Text style={styles.boxTitle}>Optimize Construction Costs</Text>
+           <TouchableOpacity
+            style={[styles.savingsOption, selectedSavings.includes("flyash") ? styles.savingsOptionActive : null]}
+            onPress={() => toggleSavingOption("flyash")}
+          >
+            <Ionicons
+              name={selectedSavings.includes("flyash") ? "checkbox" : "square-outline"}
+              size={22}
+              color={selectedSavings.includes("flyash") ? "#D9A443" : "#64748B"}
+              style={styles.iconMarginRight12}
+            />
+            <View style={styles.flexOne}>
+              <Text style={styles.savingsOptionTitle}>Use Fly-Ash Bricks</Text>
+              <Text style={styles.savingsOptionDesc}>Saves ~₹50 per sqft. Lower plaster requirement.</Text>
+            </View>
+            <Text style={styles.savingsOptionValue}>-₹{(parsedArea * 50).toLocaleString("en-IN")}</Text>
+          </TouchableOpacity>
+ 
+          {quality === "premium" && (
+            <TouchableOpacity
+              style={[styles.savingsOption, selectedSavings.includes("tiles") ? styles.savingsOptionActive : null]}
+              onPress={() => toggleSavingOption("tiles")}
+            >
+              <Ionicons
+                name={selectedSavings.includes("tiles") ? "checkbox" : "square-outline"}
+                size={22}
+                color={selectedSavings.includes("tiles") ? "#D9A443" : "#64748B"}
+                style={styles.iconMarginRight12}
+              />
+              <View style={styles.flexOne}>
+                <Text style={styles.savingsOptionTitle}>Standard GVT Tiles vs Import</Text>
+                <Text style={styles.savingsOptionDesc}>Saves ~₹120 per sqft. Premium locally-made alternative.</Text>
+              </View>
+              <Text style={styles.savingsOptionValue}>-₹{(parsedArea * 120).toLocaleString("en-IN")}</Text>
+            </TouchableOpacity>
+          )}
+ 
+          {includeSump && (
+            <TouchableOpacity
+              style={[styles.savingsOption, selectedSavings.includes("sump_tank") ? styles.savingsOptionActive : null]}
+              onPress={() => toggleSavingOption("sump_tank")}
+            >
+              <Ionicons
+                name={selectedSavings.includes("sump_tank") ? "checkbox" : "square-outline"}
+                size={22}
+                color={selectedSavings.includes("sump_tank") ? "#D9A443" : "#64748B"}
+                style={styles.iconMarginRight12}
+              />
+              <View style={styles.flexOne}>
+                <Text style={styles.savingsOptionTitle}>Prefabricated Sump Tank</Text>
+                <Text style={styles.savingsOptionDesc}>Saves ~₹50,000. Fast installation, less brick masonry.</Text>
+              </View>
+              <Text style={styles.savingsOptionValue}>-₹50,000</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+ 
+      <TouchableOpacity
+        style={styles.btnSecondary}
+        onPress={() => setWizardStep(1)}
+      >
+        <Ionicons name="arrow-back" size={18} color="#475569" style={styles.iconMarginRight6} />
+        <Text style={styles.btnSecondaryText}>Modify Inputs</Text>
+      </TouchableOpacity>
+    </View>
+  );
+});
+
 export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const insets = useSafeAreaInsets();
   const editProject = route.params?.projectData;
   const editName = route.params?.projectName;
 
@@ -187,13 +556,13 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
     );
   }, [costs.main, selectedSavings, savings]);
 
-  const toggleSavingOption = (option: string) => {
+  const toggleSavingOption = useCallback((option: string) => {
     setSelectedSavings((prev) =>
       prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
     );
-  };
+  }, []);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!user) {
       Alert.alert("Sign In Required", "Please sign in to save this project.", [
         { text: "Cancel" },
@@ -212,49 +581,52 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
 
     Alert.prompt(
       "Save Project",
-      "Enter a name for this estimate:",
+      "Enter a name for this estimation draft:",
       [
-        { text: "Cancel" },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Save",
           onPress: async (name?: string) => {
-            if (!name || name.trim() === "") {
-              Alert.alert("Error", "Project name is required.");
+            if (!name || !name.trim()) {
+              Alert.alert("Invalid Name", "Project name cannot be empty.");
               return;
             }
-
             setIsSaving(true);
             try {
-              // Deduct credit
-              const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
-                user_uuid: user.id,
-              });
+              const projectData = {
+                area: parsedArea,
+                parkingArea: parsedParking,
+                compoundWallLength: parsedWall,
+                includeSump,
+                quality,
+                rate: customRate,
+                totalCost: finalTotalCost,
+                breakdown: breakdownData,
+                savings: savings.total,
+                savingsList: selectedSavings,
+              };
 
-              if (rpcError) {
-                if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
-                  Alert.alert("Error", rpcError.message);
-                  return;
-                }
-                throw rpcError;
-              }
-
-              // Save project record
-              const { error: insertError } = await supabase.from("projects").insert({
+              const payload = {
                 user_id: user.id,
                 name: name.trim(),
-                type: "construction",
-                data: {
-                  area,
-                  parkingArea,
-                  compoundWallLength,
-                  includeSump,
-                  quality,
-                  rate: customRate,
-                  selectedSavings,
-                  totalCost: finalTotalCost,
-                },
-                date: new Date().toISOString(),
-              });
+                calculator_type: "construction",
+                input_data: projectData,
+                result_data: { finalTotalCost, perSqftCost },
+              };
+
+              let insertError;
+              if (editProject) {
+                const { error } = await supabase
+                  .from("saved_projects")
+                  .update(payload)
+                  .eq("id", editProject.id);
+                insertError = error;
+              } else {
+                const { error } = await supabase
+                  .from("saved_projects")
+                  .insert(payload);
+                insertError = error;
+              }
 
               if (insertError) throw insertError;
 
@@ -277,9 +649,9 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
       "plain-text",
       editName || ""
     );
-  };
+  }, [user, planTier, credits, parsedArea, parsedParking, parsedWall, includeSump, quality, customRate, finalTotalCost, perSqftCost, breakdownData, savings.total, selectedSavings, editProject, editName, navigation, refreshProfile]);
 
-  const handleExportPDF = async () => {
+  const handleExportPDF = useCallback(async () => {
     setIsExporting(true);
     try {
       const formattedDate = new Date().toLocaleDateString("en-IN");
@@ -290,10 +662,11 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
           ([phase, cost]) => `
         <tr>
           <td style="padding: 10px; border-bottom: 1px solid #E2E8F0;">${phase} Estimate</td>
-          <td style="padding: 10px; border-bottom: 1px solid #E2E8F0; text-align: right;">
-            ${new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(cost)}
+          <td style="padding: 10px; border-bottom: 1px solid #E2E8F0; text-align: right; font-weight: bold; color: #1E293B;">
+            ₹${Math.round(cost).toLocaleString("en-IN")}
           </td>
-        </tr>`
+        </tr>
+      `
         )
         .join("");
 
@@ -410,314 +783,51 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const renderFormStep = () => {
-    return (
-      <View style={styles.formContainer}>
-        <Text style={styles.sectionTitle}>1. Project Dimension Inputs</Text>
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Built-up Area (Sq.Ft)*</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="resize" size={18} color="#64748B" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 1500"
-              keyboardType="numeric"
-              value={area}
-              onChangeText={setArea}
-            />
-          </View>
-          <View style={styles.sliderRow}>
-            <Slider
-              style={styles.slider}
-              minimumValue={500}
-              maximumValue={5000}
-              step={50}
-              value={parseFloat(area) || 500}
-              onValueChange={(val) => setArea(String(val))}
-              minimumTrackTintColor="#D9A443"
-              maximumTrackTintColor="#CBD5E1"
-              thumbTintColor="#D9A443"
-            />
-            <Text style={styles.sliderValueText}>{parseFloat(area) || 500} sqft</Text>
-          </View>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Parking Area (Sq.Ft)</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="car" size={18} color="#64748B" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 200"
-              keyboardType="numeric"
-              value={parkingArea}
-              onChangeText={setParkingArea}
-            />
-          </View>
-          <View style={styles.sliderRow}>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={1000}
-              step={10}
-              value={parseFloat(parkingArea) || 0}
-              onValueChange={(val) => setParkingArea(String(val))}
-              minimumTrackTintColor="#D9A443"
-              maximumTrackTintColor="#CBD5E1"
-              thumbTintColor="#D9A443"
-            />
-            <Text style={styles.sliderValueText}>{parseFloat(parkingArea) || 0} sqft</Text>
-          </View>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Compound Wall Length (Running Feet)</Text>
-          <View style={styles.inputWrapper}>
-            <Ionicons name="git-commit" size={18} color="#64748B" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 120"
-              keyboardType="numeric"
-              value={compoundWallLength}
-              onChangeText={setCompoundWallLength}
-            />
-          </View>
-          <View style={styles.sliderRow}>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={500}
-              step={10}
-              value={parseFloat(compoundWallLength) || 0}
-              onValueChange={(val) => setCompoundWallLength(String(val))}
-              minimumTrackTintColor="#D9A443"
-              maximumTrackTintColor="#CBD5E1"
-              thumbTintColor="#D9A443"
-            />
-            <Text style={styles.sliderValueText}>{parseFloat(compoundWallLength) || 0} ft</Text>
-          </View>
-        </View>
-
-        <View style={styles.switchRow}>
-          <View style={styles.switchText}>
-            <Text style={styles.switchLabel}>Include Under-ground Sump Tank</Text>
-            <Text style={styles.switchDesc}>Estimated capacity rates based on quality tier.</Text>
-          </View>
-          <Switch value={includeSump} onValueChange={setIncludeSump} trackColor={{ true: "#D9A443" }} />
-        </View>
-
-        <Text style={styles.sectionTitle}>2. Material & Finishing Quality</Text>
-        <View style={styles.qualityRow}>
-          {(["basic", "standard", "premium"] as const).map((q) => (
-            <TouchableOpacity
-              key={q}
-              style={[
-                styles.qualityBtn,
-                quality === q ? styles.qualityBtnActive : null,
-              ]}
-              onPress={() => setQuality(q)}
-            >
-              <Text style={[styles.qualityBtnText, quality === q ? styles.qualityBtnTextActive : null]}>
-                {QUALITY_INFO[q].label}
-              </Text>
-              <Text style={[styles.qualityPrice, quality === q ? styles.qualityPriceActive : null]}>
-                ₹{QUALITY_RATES[q]}/sqft
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Custom Rate Panel */}
-        <View style={styles.ratePanel}>
-          <View style={styles.rateHeader}>
-            <Text style={styles.rateLabel}>Estimated Base Rate per Sqft:</Text>
-            <TouchableOpacity onPress={() => setIsEditingRate(!isEditingRate)}>
-              <Text style={styles.editRateBtn}>{isEditingRate ? "Reset" : "Edit Rate"}</Text>
-            </TouchableOpacity>
-          </View>
-          {isEditingRate ? (
-            <View style={styles.inputWrapperSmall}>
-              <Text style={styles.currencySymbol}>₹</Text>
-              <TextInput
-                style={styles.input}
-                keyboardType="numeric"
-                value={String(customRate)}
-                onChangeText={(val) => setCustomRate(parseInt(val, 10) || 0)}
-              />
-            </View>
-          ) : (
-            <Text style={styles.rateValue}>₹{customRate} / sq.ft</Text>
-          )}
-        </View>
-
-        <TouchableOpacity
-          style={styles.btnPrimary}
-          onPress={() => {
-            if (!area || parsedArea <= 0) {
-              Alert.alert("Missing Input", "Please enter a valid Built-up Area");
-              return;
-            }
-            setWizardStep(2);
-          }}
-        >
-          <Text style={styles.btnText}>Calculate Construction Cost</Text>
-          <Ionicons name="arrow-forward" size={18} color="#1E293B" style={{ marginLeft: 6 }} />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const renderResultsStep = () => {
-    const formattedTotal = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(finalTotalCost);
-    const formattedPerSqft = new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(perSqftCost);
-
-    return (
-      <View style={styles.resultsContainer}>
-        {/* KPI Strip */}
-        <View style={styles.kpiCard}>
-          <Text style={styles.kpiTitle}>Total Estimated Budget</Text>
-          <Text style={styles.kpiValue}>{formattedTotal}</Text>
-          <Text style={styles.kpiSub}>Average Rate: {formattedPerSqft} / sq.ft</Text>
-        </View>
-
-        {/* Action Bar */}
-        <View style={styles.actionBar}>
-          <TouchableOpacity style={styles.btnAction} onPress={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <ActivityIndicator color="#64748B" />
-            ) : (
-              <>
-                <Ionicons name="save-outline" size={18} color="#475569" />
-                <Text style={styles.btnActionText}>Save Project</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnAction} onPress={handleExportPDF} disabled={isExporting}>
-            {isExporting ? (
-              <ActivityIndicator color="#64748B" />
-            ) : (
-              <>
-                <Ionicons name="share-outline" size={18} color="#475569" />
-                <Text style={styles.btnActionText}>Export PDF</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Tab Controls */}
-        <View style={styles.resultsTabs}>
-          <TouchableOpacity
-            style={[styles.resultsTabBtn, activeResultsTab === "breakdown" ? styles.resultsTabBtnActive : null]}
-            onPress={() => setActiveResultsTab("breakdown")}
-          >
-            <Text style={[styles.resultsTabBtnText, activeResultsTab === "breakdown" ? styles.resultsTabBtnTextActive : null]}>
-              Phase Breakdown
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.resultsTabBtn, activeResultsTab === "savings" ? styles.resultsTabBtnActive : null]}
-            onPress={() => setActiveResultsTab("savings")}
-          >
-            <Text style={[styles.resultsTabBtnText, activeResultsTab === "savings" ? styles.resultsTabBtnTextActive : null]}>
-              Savings Advisor
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {activeResultsTab === "breakdown" ? (
-          <View style={styles.breakdownBox}>
-            <Text style={styles.boxTitle}>Estimated Cost Splits by Phase</Text>
-            {Object.entries(breakdownData).map(([phase, cost]) => (
-              <View key={phase} style={styles.breakdownRow}>
-                <Text style={styles.breakdownPhase}>{phase}</Text>
-                <Text style={styles.breakdownCost}>
-                  {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(cost)}
-                </Text>
-              </View>
-            ))}
-          </View>
-        ) : (
-          <View style={styles.savingsBox}>
-            <Text style={styles.boxTitle}>Optimize Construction Costs</Text>
-            <Text style={styles.boxDesc}>Choose cost-saving alternatives to reduce the final price:</Text>
-
-            {/* Savings Toggles */}
-            <TouchableOpacity
-              style={[styles.savingsOption, selectedSavings.includes("flyash") ? styles.savingsOptionActive : null]}
-              onPress={() => toggleSavingOption("flyash")}
-            >
-              <Ionicons
-                name={selectedSavings.includes("flyash") ? "checkbox" : "square-outline"}
-                size={22}
-                color={selectedSavings.includes("flyash") ? "#D9A443" : "#64748B"}
-                style={{ marginRight: 12 }}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.savingsOptionTitle}>Use Fly-Ash Bricks</Text>
-                <Text style={styles.savingsOptionDesc}>Saves ~₹50 per sqft. Lower plaster requirement.</Text>
-              </View>
-              <Text style={styles.savingsOptionValue}>-₹{(parsedArea * 50).toLocaleString("en-IN")}</Text>
-            </TouchableOpacity>
-
-            {quality === "premium" && (
-              <TouchableOpacity
-                style={[styles.savingsOption, selectedSavings.includes("tiles") ? styles.savingsOptionActive : null]}
-                onPress={() => toggleSavingOption("tiles")}
-              >
-                <Ionicons
-                  name={selectedSavings.includes("tiles") ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={selectedSavings.includes("tiles") ? "#D9A443" : "#64748B"}
-                  style={{ marginRight: 12 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.savingsOptionTitle}>Standard GVT Tiles vs Import</Text>
-                  <Text style={styles.savingsOptionDesc}>Saves ~₹120 per sqft. Premium locally-made alternative.</Text>
-                </View>
-                <Text style={styles.savingsOptionValue}>-₹{(parsedArea * 120).toLocaleString("en-IN")}</Text>
-              </TouchableOpacity>
-            )}
-
-            {includeSump && (
-              <TouchableOpacity
-                style={[styles.savingsOption, selectedSavings.includes("sump_tank") ? styles.savingsOptionActive : null]}
-                onPress={() => toggleSavingOption("sump_tank")}
-              >
-                <Ionicons
-                  name={selectedSavings.includes("sump_tank") ? "checkbox" : "square-outline"}
-                  size={22}
-                  color={selectedSavings.includes("sump_tank") ? "#D9A443" : "#64748B"}
-                  style={{ marginRight: 12 }}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.savingsOptionTitle}>Prefabricated Sump Tank</Text>
-                  <Text style={styles.savingsOptionDesc}>Saves ~₹50,000. Fast installation, less brick masonry.</Text>
-                </View>
-                <Text style={styles.savingsOptionValue}>-₹50,000</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={styles.btnSecondary}
-          onPress={() => setWizardStep(1)}
-        >
-          <Ionicons name="arrow-back" size={18} color="#475569" style={{ marginRight: 6 }} />
-          <Text style={styles.btnSecondaryText}>Modify Inputs</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  };
+  }, [finalTotalCost, breakdownData, quality, area, customRate, parkingArea, compoundWallLength, parsedParking, parsedWall, includeSump, costs]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {wizardStep === 1 ? renderFormStep() : renderResultsStep()}
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 30 }]}>
+        {wizardStep === 1 ? (
+          <FormStep
+            area={area}
+            setArea={setArea}
+            parkingArea={parkingArea}
+            setParkingArea={setParkingArea}
+            compoundWallLength={compoundWallLength}
+            setCompoundWallLength={setCompoundWallLength}
+            includeSump={includeSump}
+            setIncludeSump={setIncludeSump}
+            quality={quality}
+            setQuality={setQuality}
+            isEditingRate={isEditingRate}
+            setIsEditingRate={setIsEditingRate}
+            customRate={customRate}
+            setCustomRate={setCustomRate}
+            parsedArea={parsedArea}
+            setWizardStep={setWizardStep}
+          />
+        ) : (
+          <ResultsStep
+            finalTotalCost={finalTotalCost}
+            perSqftCost={perSqftCost}
+            isSaving={isSaving}
+            isExporting={isExporting}
+            activeResultsTab={activeResultsTab}
+            setActiveResultsTab={setActiveResultsTab}
+            selectedSavings={selectedSavings}
+            toggleSavingOption={toggleSavingOption}
+            breakdownData={breakdownData}
+            parsedArea={parsedArea}
+            quality={quality}
+            includeSump={includeSump}
+            handleSave={handleSave}
+            handleExportPDF={handleExportPDF}
+            setWizardStep={setWizardStep}
+          />
+        )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -1075,6 +1185,18 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     minWidth: 70,
     textAlign: "right",
+  },
+  iconMarginLeft6: {
+    marginLeft: 6,
+  },
+  iconMarginRight6: {
+    marginRight: 6,
+  },
+  iconMarginRight12: {
+    marginRight: 12,
+  },
+  flexOne: {
+    flex: 1,
   },
 });
 

@@ -4,7 +4,6 @@ import {
   Text,
   View,
   FlatList,
-  Image,
   TouchableOpacity,
   ActivityIndicator,
   Modal,
@@ -12,13 +11,16 @@ import {
   SafeAreaView,
   Linking,
   ScrollView,
+  Platform,
 } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
 import { useUser } from "../context/UserContext";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import { useFocusEffect } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 
 interface HousePlan {
@@ -34,9 +36,55 @@ interface HousePlan {
   parking: string;
   description: string;
   youtube_url?: string;
+  displayUrl?: string;
 }
 
+interface HousePlanCardProps {
+  item: HousePlan;
+  isLocked: boolean;
+  onPress: (item: HousePlan) => void;
+}
+
+const HousePlanCard = React.memo(({ item, isLocked, onPress }: HousePlanCardProps) => {
+  return (
+    <TouchableOpacity
+      style={styles.card}
+      onPress={() => onPress(item)}
+      activeOpacity={0.9}
+    >
+      <View style={styles.imageContainer}>
+        <Image source={{ uri: item.displayUrl || item.file_url }} style={styles.cardImage} />
+        {isLocked && (
+          <View style={styles.proBadge}>
+            <Ionicons name="lock-closed" size={10} color="#FFFFFF" style={styles.iconMarginRight2} />
+            <Text style={styles.proBadgeText}>PRO</Text>
+          </View>
+        )}
+      </View>
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardTitle}>{item.title}</Text>
+        <Text style={styles.cardDim}>{item.dimensions} | {item.area_sqft} sqft</Text>
+        <View style={styles.cardMeta}>
+          <View style={styles.metaBadge}>
+            <Ionicons name="compass" size={14} color="#64748B" style={styles.iconMarginRight4} />
+            <Text style={styles.metaBadgeText}>{item.facing} Facing</Text>
+          </View>
+          <View style={styles.metaBadge}>
+            <Ionicons name="layers" size={14} color="#64748B" style={styles.iconMarginRight4} />
+            <Text style={styles.metaBadgeText}>{item.floors}</Text>
+          </View>
+          <View style={styles.metaBadge}>
+            <Ionicons name="bed" size={14} color="#64748B" style={styles.iconMarginRight4} />
+            <Text style={styles.metaBadgeText}>{item.bedrooms} BHK</Text>
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+});
+
 export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const [plans, setPlans] = useState<HousePlan[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -64,10 +112,18 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
       if (error) throw error;
 
       if (data) {
+        const mappedData = data.map((plan: any) => {
+          let displayUrl = plan.file_url;
+          if (!displayUrl.startsWith("http")) {
+            displayUrl = supabase.storage.from("house-plans").getPublicUrl(plan.file_url).data.publicUrl;
+          }
+          return { ...plan, displayUrl };
+        });
+
         if (clearOld) {
-          setPlans(data);
+          setPlans(mappedData);
         } else {
-          setPlans((prev) => [...prev, ...data]);
+          setPlans((prev) => [...prev, ...mappedData]);
         }
         setHasMore(data.length === PLANS_PER_PAGE);
       }
@@ -86,57 +142,6 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
       fetchPlans(0, true);
     }, [])
   );
-
-  const handleDeletePlan = async (plan: HousePlan) => {
-    Alert.alert(
-      "Confirm Delete",
-      `Are you sure you want to permanently delete "${plan.title}" from the database and storage?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Plan",
-          style: "destructive",
-          onPress: async () => {
-            setSelectedPlan(null);
-            setLoading(true);
-            try {
-              // 1. Delete from database
-              const { error: dbError } = await supabase
-                .from("house_plans")
-                .delete()
-                .eq("id", plan.id);
-
-              if (dbError) throw dbError;
-
-              // 2. Remove file from storage
-              let relativePath = plan.file_url;
-              if (relativePath.includes("/house-plans/")) {
-                relativePath = relativePath.split("/house-plans/")[1].replace(/^\/+/, "");
-              }
-              relativePath = relativePath.replace(/^\/+/, "");
-
-              const { error: storageError } = await supabase.storage
-                .from("house-plans")
-                .remove([relativePath]);
-
-              if (storageError) {
-                console.error("Storage deletion error:", storageError);
-              }
-
-              // 3. Update local state
-              setPlans((prev) => prev.filter((p) => p.id !== plan.id));
-              Alert.alert("Success", "House plan deleted successfully.");
-            } catch (err: any) {
-              console.error("Delete plan error:", err);
-              Alert.alert("Error", err.message || "Failed to delete plan.");
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -195,51 +200,16 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
     }
   };
 
-  const renderItem = ({ item }: { item: HousePlan }) => {
+  const renderItem = useCallback(({ item }: { item: HousePlan }) => {
     const isLocked = !hasPaid && role !== "admin";
-
-    // Resolve public URL for display
-    let displayUrl = item.file_url;
-    if (!displayUrl.startsWith("http")) {
-      displayUrl = supabase.storage.from("house-plans").getPublicUrl(item.file_url).data.publicUrl;
-    }
-
     return (
-      <TouchableOpacity
-        style={styles.card}
-        onPress={() => handlePlanPress(item)}
-        activeOpacity={0.9}
-      >
-        <View style={styles.imageContainer}>
-          <Image source={{ uri: displayUrl }} style={styles.cardImage} blurRadius={isLocked ? 12 : 0} />
-          {isLocked && (
-            <View style={styles.lockedOverlay}>
-              <Ionicons name="lock-closed" size={24} color="#FFFFFF" />
-              <Text style={styles.lockedText}>Unlocked with Pro Plan</Text>
-            </View>
-          )}
-        </View>
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle}>{item.title}</Text>
-          <Text style={styles.cardDim}>{item.dimensions} | {item.area_sqft} sqft</Text>
-          <View style={styles.cardMeta}>
-            <View style={styles.metaBadge}>
-              <Ionicons name="compass" size={14} color="#64748B" style={{ marginRight: 4 }} />
-              <Text style={styles.metaBadgeText}>{item.facing} Facing</Text>
-            </View>
-            <View style={styles.metaBadge}>
-              <Ionicons name="layers" size={14} color="#64748B" style={{ marginRight: 4 }} />
-              <Text style={styles.metaBadgeText}>{item.floors}</Text>
-            </View>
-            <View style={styles.metaBadge}>
-              <Ionicons name="bed" size={14} color="#64748B" style={{ marginRight: 4 }} />
-              <Text style={styles.metaBadgeText}>{item.bedrooms} BHK</Text>
-            </View>
-          </View>
-        </View>
-      </TouchableOpacity>
+      <HousePlanCard
+        item={item}
+        isLocked={isLocked}
+        onPress={handlePlanPress}
+      />
     );
-  };
+  }, [hasPaid, role, handlePlanPress]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -247,13 +217,19 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
         data={plans}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}
+        numColumns={2}
+        columnWrapperStyle={styles.columnWrapper}
         contentContainerStyle={styles.listContent}
         onRefresh={handleRefresh}
         refreshing={refreshing}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.5}
+        initialNumToRender={8}
+        maxToRenderPerBatch={8}
+        windowSize={5}
+        removeClippedSubviews={Platform.OS === "android"}
         ListFooterComponent={() => 
-          loading && !refreshing ? <ActivityIndicator style={{ margin: 16 }} color="#D9A443" /> : null
+          loading && !refreshing ? <ActivityIndicator style={styles.loader} color="#D9A443" /> : null
         }
         ListEmptyComponent={() =>
           !loading ? (
@@ -274,7 +250,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
           onRequestClose={() => setSelectedPlan(null)}
         >
           <View style={styles.modalBackdrop}>
-            <View style={styles.modalContent}>
+            <View style={[styles.modalContent, { paddingBottom: insets.bottom > 0 ? insets.bottom + 8 : 24 }]}>
               <View style={styles.modalHeader}>
                 <Text style={styles.modalTitle} numberOfLines={1}>
                   {selectedPlan.title}
@@ -287,13 +263,10 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
               <ScrollView style={styles.modalScroll}>
                 <Image
                   source={{
-                    uri: selectedPlan.file_url.startsWith("http")
-                      ? selectedPlan.file_url
-                      : supabase.storage.from("house-plans").getPublicUrl(selectedPlan.file_url).data.publicUrl,
+                    uri: selectedPlan.displayUrl || selectedPlan.file_url,
                   }}
                   style={styles.modalImage}
-                  resizeMode="contain"
-                  blurRadius={!hasPaid && role !== "admin" ? 16 : 0}
+                  contentFit="contain"
                 />
 
                 <View style={styles.modalSpecs}>
@@ -323,22 +296,13 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
                     style={styles.btnYoutube}
                     onPress={() => openYouTube(selectedPlan.youtube_url)}
                   >
-                    <Ionicons name="logo-youtube" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                    <Ionicons name="logo-youtube" size={20} color="#FFFFFF" style={styles.iconMarginRight8} />
                     <Text style={styles.btnYoutubeText}>Watch House Walkthrough</Text>
                   </TouchableOpacity>
                 )}
               </ScrollView>
 
               <View style={styles.modalFooter}>
-                {role === "admin" && (
-                  <TouchableOpacity
-                    style={styles.btnDeletePlan}
-                    onPress={() => handleDeletePlan(selectedPlan)}
-                  >
-                    <Ionicons name="trash" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.btnDeletePlanText}>Delete Plan Entirely</Text>
-                  </TouchableOpacity>
-                )}
 
                 {!hasPaid && role !== "admin" ? (
                   <TouchableOpacity
@@ -348,7 +312,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
                       navigation.navigate("Upgrade");
                     }}
                   >
-                    <Ionicons name="lock-closed" size={18} color="#1E293B" style={{ marginRight: 6 }} />
+                    <Ionicons name="lock-closed" size={18} color="#1E293B" style={styles.iconMarginRight6} />
                     <Text style={styles.btnPrimaryLockText}>Unlock Download with PRO</Text>
                   </TouchableOpacity>
                 ) : (
@@ -361,7 +325,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
                       <ActivityIndicator color="#1E293B" />
                     ) : (
                       <>
-                        <Ionicons name="download" size={18} color="#1E293B" style={{ marginRight: 6 }} />
+                        <Ionicons name="download" size={18} color="#1E293B" style={styles.iconMarginRight6} />
                         <Text style={styles.btnPrimaryText}>Share & Download Plan</Text>
                       </>
                     )}
@@ -373,15 +337,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
         </Modal>
       )}
 
-      {role === "admin" && (
-        <TouchableOpacity
-          style={styles.fab}
-          onPress={() => navigation.navigate("PlanUploader")}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="add" size={28} color="#1E293B" />
-        </TouchableOpacity>
-      )}
+
     </SafeAreaView>
   );
 };
@@ -392,12 +348,16 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8FAFC",
   },
   listContent: {
-    padding: 16,
+    padding: 10,
+    paddingBottom: 80,
+  },
+  columnWrapper: {
+    justifyContent: "space-between",
   },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    marginBottom: 16,
+    marginBottom: 12,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#E2E8F0",
@@ -406,10 +366,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
+    flex: 0.485,
   },
   imageContainer: {
     width: "100%",
-    aspectRatio: 9 / 16,
+    aspectRatio: 4 / 3,
     position: "relative",
     backgroundColor: "#F1F5F9",
     overflow: "hidden",
@@ -418,47 +379,56 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  lockedOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.6)",
-    justifyContent: "center",
+  proBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(217, 164, 67, 0.95)",
+    flexDirection: "row",
     alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    zIndex: 10,
+    elevation: 3,
   },
-  lockedText: {
+  proBadgeText: {
     color: "#FFFFFF",
-    fontSize: 14,
+    fontSize: 10,
     fontWeight: "bold",
-    marginTop: 8,
   },
   cardInfo: {
-    padding: 16,
+    padding: 10,
   },
   cardTitle: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: "bold",
     color: "#1E293B",
-    marginBottom: 4,
+    marginBottom: 3,
   },
   cardDim: {
-    fontSize: 13,
+    fontSize: 11,
     color: "#64748B",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   cardMeta: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
+    marginTop: 2,
   },
   metaBadge: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F1F5F9",
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    marginRight: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    borderRadius: 6,
+    marginRight: 6,
+    marginBottom: 6,
   },
   metaBadgeText: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#475569",
     fontWeight: "500",
   },
@@ -502,6 +472,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   modalScroll: {
+    flex: 1,
     padding: 20,
   },
   modalImage: {
@@ -554,14 +525,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
     marginBottom: 24,
+    alignSelf: "center",
   },
   btnYoutubeText: {
     color: "#FFFFFF",
     fontWeight: "bold",
-    fontSize: 14,
+    fontSize: 12,
   },
   modalFooter: {
     paddingHorizontal: 20,
@@ -597,35 +570,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "bold",
   },
-  fab: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: "#D9A443",
-    justifyContent: "center",
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
+
+  iconMarginRight2: {
+    marginRight: 2,
   },
-  btnDeletePlan: {
-    backgroundColor: "#EF4444",
-    height: 48,
-    borderRadius: 12,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 10,
+  iconMarginRight4: {
+    marginRight: 4,
   },
-  btnDeletePlanText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "bold",
+  iconMarginRight6: {
+    marginRight: 6,
+  },
+  iconMarginRight8: {
+    marginRight: 8,
+  },
+  loader: {
+    margin: 16,
   },
 });
 

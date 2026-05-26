@@ -3,6 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Import Screens
 import HomeScreen from "../screens/HomeScreen";
@@ -16,7 +17,6 @@ import ConstructionCalculatorScreen from "../screens/ConstructionCalculatorScree
 import MaterialCalculatorScreen from "../screens/MaterialCalculatorScreen";
 import OtherCalculatorScreen from "../screens/OtherCalculatorScreen";
 import ProRegistrationScreen from "../screens/ProRegistrationScreen";
-import PlanUploaderScreen from "../screens/PlanUploaderScreen";
 
 // Import Legal Pages
 import PrivacyPolicyScreen from "../screens/PrivacyPolicyScreen";
@@ -32,7 +32,6 @@ export type RootStackParamList = {
   SignUp: undefined;
   Upgrade: undefined;
   ProRegistration: undefined;
-  PlanUploader: undefined;
   PrivacyPolicy: undefined;
   TermsOfService: undefined;
   AboutUs: undefined;
@@ -49,6 +48,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
 const TabNavigator = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -72,9 +72,9 @@ const TabNavigator = () => {
         tabBarStyle: {
           backgroundColor: "#1E293B", // Navy
           borderTopColor: "#334155",
-          paddingBottom: 5,
-          paddingTop: 5,
-          height: 60,
+          paddingBottom: insets.bottom > 0 ? insets.bottom + 4 : 8,
+          paddingTop: 8,
+          height: 60 + (insets.bottom > 0 ? insets.bottom - 4 : 0),
         },
         headerStyle: {
           backgroundColor: "#1E293B",
@@ -169,11 +169,7 @@ const RootNavigator = () => {
           component={ProRegistrationScreen}
           options={{ title: "Manage Professional Listing" }}
         />
-        <Stack.Screen
-          name="PlanUploader"
-          component={PlanUploaderScreen}
-          options={{ title: "Admin Plan Uploader" }}
-        />
+
         <Stack.Screen
           name="PrivacyPolicy"
           component={PrivacyPolicyScreen}
