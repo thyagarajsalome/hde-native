@@ -54,7 +54,7 @@ const plans = [
   },
   {
     name: "Pro",
-    id: "hde.pro.monthly",
+    id: "hdepro",
     price: "999",
     originalPrice: "1,427",
     type: "mo",
@@ -81,7 +81,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const [loading, setLoading] = useState(false);
 
   const itemSkus = ["hde.basic.199", "hde.standard.349"];
-  const subscriptionSkus = ["hde.pro.monthly"];
+  const subscriptionSkus = ["hdepro"];
 
   useEffect(() => {
     let purchaseUpdateSubscription: any;
@@ -160,7 +160,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     let tierName: "basic" | "standard" | "pro" = "basic";
     let creditsCount = 0;
 
-    if (purchase.productId === "hde.pro.monthly") {
+    if (purchase.productId === "hdepro") {
       tierName = "pro";
       creditsCount = 100;
     } else if (purchase.productId === "hde.standard.349") {
@@ -264,7 +264,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         let restoredCredits = 0;
 
         for (const purchase of purchases) {
-          if (purchase.productId === "hde.pro.monthly") {
+          if (purchase.productId === "hdepro") {
             restoredTier = "pro";
             restoredCredits = 100;
           } else if (purchase.productId === "hde.standard.349") {
