@@ -8,10 +8,10 @@ import {
   StatusBar,
   Image,
   ScrollView,
-  ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useUser } from "../context/UserContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
 
@@ -31,82 +31,83 @@ interface CalculatorItem {
   params?: any;
 }
 
+const calculators: CalculatorItem[] = [
+  {
+    id: "construction",
+    title: "Construction",
+    icon: "home",
+    color: "#D9A443",
+    minTier: 0,
+    screen: "ConstructionCalculator",
+  },
+  {
+    id: "interior",
+    title: "Interiors",
+    icon: "bed-outline",
+    color: "#64748B",
+    minTier: 1,
+    screen: "OtherCalculator",
+    params: { type: "interior" },
+  },
+  {
+    id: "flooring",
+    title: "Flooring",
+    icon: "layers-outline",
+    color: "#64748B",
+    minTier: 1,
+    screen: "OtherCalculator",
+    params: { type: "flooring" },
+  },
+  {
+    id: "painting",
+    title: "Painting",
+    icon: "brush-outline",
+    color: "#64748B",
+    minTier: 1,
+    screen: "OtherCalculator",
+    params: { type: "painting" },
+  },
+  {
+    id: "doors-windows",
+    title: "Doors/Windows",
+    icon: "open-outline",
+    color: "#64748B",
+    minTier: 2,
+    screen: "OtherCalculator",
+    params: { type: "doors-windows" },
+  },
+  {
+    id: "plumbing",
+    title: "Plumbing",
+    icon: "water-outline",
+    color: "#64748B",
+    minTier: 2,
+    screen: "OtherCalculator",
+    params: { type: "plumbing" },
+  },
+  {
+    id: "electrical",
+    title: "Electrical",
+    icon: "flash-outline",
+    color: "#64748B",
+    minTier: 2,
+    screen: "OtherCalculator",
+    params: { type: "electrical" },
+  },
+  {
+    id: "materials",
+    title: "Materials BOQ",
+    icon: "cube-outline",
+    color: "#64748B",
+    minTier: 3,
+    screen: "MaterialCalculator",
+  },
+];
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const { user, hasPaid, planTier, role } = useUser();
+  const insets = useSafeAreaInsets();
   const userTierValue = { free: 0, basic: 1, standard: 2, pro: 3 }[planTier || "free"] || 0;
-
-  const calculators: CalculatorItem[] = [
-    {
-      id: "construction",
-      title: "Construction",
-      icon: "home",
-      color: "#D9A443",
-      minTier: 0,
-      screen: "ConstructionCalculator",
-    },
-    {
-      id: "interior",
-      title: "Interiors",
-      icon: "bed-outline",
-      color: "#64748B",
-      minTier: 1,
-      screen: "OtherCalculator",
-      params: { type: "interior" },
-    },
-    {
-      id: "flooring",
-      title: "Flooring",
-      icon: "layers-outline",
-      color: "#64748B",
-      minTier: 1,
-      screen: "OtherCalculator",
-      params: { type: "flooring" },
-    },
-    {
-      id: "painting",
-      title: "Painting",
-      icon: "brush-outline",
-      color: "#64748B",
-      minTier: 1,
-      screen: "OtherCalculator",
-      params: { type: "painting" },
-    },
-    {
-      id: "doors-windows",
-      title: "Doors/Windows",
-      icon: "open-outline",
-      color: "#64748B",
-      minTier: 2,
-      screen: "OtherCalculator",
-      params: { type: "doors-windows" },
-    },
-    {
-      id: "plumbing",
-      title: "Plumbing",
-      icon: "water-outline",
-      color: "#64748B",
-      minTier: 2,
-      screen: "OtherCalculator",
-      params: { type: "plumbing" },
-    },
-    {
-      id: "electrical",
-      title: "Electrical",
-      icon: "flash-outline",
-      color: "#64748B",
-      minTier: 2,
-      screen: "OtherCalculator",
-      params: { type: "electrical" },
-    },
-    {
-      id: "materials",
-      title: "Materials BOQ",
-      icon: "cube-outline",
-      color: "#64748B",
-      minTier: 3,
-      screen: "MaterialCalculator",
-    },
-  ];
 
   const handlePress = (calc: CalculatorItem) => {
     if (!user && calc.minTier > 0) {
@@ -127,11 +128,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#1E293B" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
       
       {/* Small, Compact Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={styles.headerLeft}>
           <Image 
             source={require("../assets/images/logo.png")} 
@@ -238,7 +239,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -275,7 +276,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   headerSubtitle: {
-    fontSize: 8,
+    fontSize: 10,
     color: "#94A3B8",
     marginTop: 1,
   },
@@ -304,34 +305,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 24,
-  },
-  heroBackground: {
-    height: 130,
-    borderRadius: 14,
-    overflow: "hidden",
-    marginBottom: 20,
-  },
-  heroImage: {
-    borderRadius: 14,
-  },
-  heroOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(15, 23, 42, 0.6)", // Slate overlay
-    padding: 18,
-    justifyContent: "center",
-  },
-  heroTitle: {
-    color: "#FFFFFF",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 6,
-  },
-  heroSubtitle: {
-    color: "#E2E8F0",
-    fontSize: 11,
-    lineHeight: 16,
-    opacity: 0.9,
+    paddingBottom: 100,
   },
   sectionTitle: {
     fontSize: 12,

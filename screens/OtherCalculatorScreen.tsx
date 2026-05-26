@@ -12,6 +12,7 @@ import {
   Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../services/supabaseClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -92,6 +93,7 @@ const INTERIOR_BREAKDOWN = {
 export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { type, projectData, projectName } = route.params;
   const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const insets = useSafeAreaInsets();
 
   const [wizardStep, setWizardStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
@@ -941,8 +943,8 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 30 }]}>
         {wizardStep === 1 ? (
           <View>
             {renderForm()}
@@ -964,7 +966,7 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
           renderResults()
         )}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

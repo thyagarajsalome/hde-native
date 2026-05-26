@@ -11,6 +11,7 @@ import {
   Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useUser } from "../context/UserContext";
 import { supabase } from "../services/supabaseClient";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -195,6 +196,7 @@ function computeBOQ(
 
 export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
   const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const insets = useSafeAreaInsets();
   const editProject = route.params?.projectData;
   const editName = route.params?.projectName;
 
@@ -638,11 +640,11 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 30 }]}>
         {wizardStep === 1 ? renderFormStep() : renderResultsStep()}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 };
 

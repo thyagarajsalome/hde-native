@@ -7,69 +7,73 @@ import {
   TouchableOpacity,
   SafeAreaView,
   StatusBar,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as WebBrowser from "expo-web-browser";
 
-export const UpgradeScreen: React.FC = () => {
-  const handleUpgradePress = async () => {
-    try {
-      await WebBrowser.openBrowserAsync("https://homedesignenglish.com/upgrade");
-    } catch (error) {
-      console.error("Failed to open web browser:", error);
-    }
-  };
+const handleUpgradePress = async () => {
+  try {
+    await WebBrowser.openBrowserAsync("https://homedesignenglish.com/upgrade");
+  } catch (error) {
+    console.error("Failed to open web browser:", error);
+  }
+};
 
-  const plans = [
-    {
-      name: "Basic",
-      price: "199",
-      originalPrice: "249",
-      type: "once",
-      credits: "5 Project Credits",
-      color: "#3B82F6", // Blue
-      icon: "paint-roller",
-      features: [
-        "Unlock Interiors, Flooring & Painting",
-        "House Plan Access",
-        "Save up to 5 unique projects",
-        "Standard PDF Cost Reports",
-      ],
-    },
-    {
-      name: "Standard",
-      price: "349",
-      originalPrice: "499",
-      type: "once",
-      credits: "10 Project Credits",
-      color: "#D9A443", // Gold
-      icon: "git-commit",
-      badge: "Most Popular",
-      features: [
-        "Everything in Basic",
-        "Unlock Plumbing & Electrical Layouts",
-        "Doors & Windows Schedule Tools",
-        "Save up to 10 unique projects",
-        "Detailed Technical PDF Exports",
-      ],
-    },
-    {
-      name: "Pro",
-      price: "999",
-      originalPrice: "1,427",
-      type: "mo",
-      credits: "High-Volume Usage",
-      color: "#64748B", // Slate
-      icon: "ribbon",
-      features: [
-        "100 Monthly Project Saves",
-        "10 Daily Save Limit (Anti-Bot)",
-        "Everything in Standard",
-        "Material BOQ (Bill of Quantities)",
-        "Priority Support",
-      ],
-    },
-  ];
+const plans = [
+  {
+    name: "Basic",
+    price: "199",
+    originalPrice: "249",
+    type: "once",
+    credits: "5 Project Credits",
+    color: "#3B82F6", // Blue
+    icon: "brush-outline",
+    features: [
+      "Unlock Interiors, Flooring & Painting",
+      "House Plan Access",
+      "Save up to 5 unique projects",
+      "Standard PDF Cost Reports",
+    ],
+  },
+  {
+    name: "Standard",
+    price: "349",
+    originalPrice: "499",
+    type: "once",
+    credits: "10 Project Credits",
+    color: "#D9A443", // Gold
+    icon: "git-commit",
+    badge: "Most Popular",
+    features: [
+      "Everything in Basic",
+      "Unlock Plumbing & Electrical Layouts",
+      "Doors & Windows Schedule Tools",
+      "Save up to 10 unique projects",
+      "Detailed Technical PDF Exports",
+    ],
+  },
+  {
+    name: "Pro",
+    price: "999",
+    originalPrice: "1,427",
+    type: "mo",
+    credits: "High-Volume Usage",
+    color: "#64748B", // Slate
+    icon: "ribbon",
+    features: [
+      "100 Monthly Project Saves",
+      "10 Daily Save Limit (Anti-Bot)",
+      "Everything in Standard",
+      "Material BOQ (Bill of Quantities)",
+      "Priority Support",
+    ],
+  },
+];
+
+export const UpgradeScreen: React.FC = () => {
+  const { width } = useWindowDimensions();
+  const isTablet = width > 768;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -95,9 +99,9 @@ export const UpgradeScreen: React.FC = () => {
         </View>
 
         {/* Plans Stack */}
-        <View style={styles.plansContainer}>
+        <View style={[styles.plansContainer, isTablet && styles.plansContainerTablet]}>
           {plans.map((plan, idx) => (
-            <View key={idx} style={[styles.planCard, plan.badge ? styles.planCardActive : null]}>
+            <View key={idx} style={[styles.planCard, plan.badge ? styles.planCardActive : null, isTablet && styles.planCardTablet]}>
               {plan.badge && (
                 <View style={styles.badgeContainer}>
                   <Text style={styles.badgeText}>{plan.badge}</Text>
@@ -197,6 +201,17 @@ const styles = StyleSheet.create({
   plansContainer: {
     width: "100%",
     marginBottom: 20,
+  },
+  plansContainerTablet: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "stretch",
+    width: "100%",
+  },
+  planCardTablet: {
+    flex: 1,
+    marginHorizontal: 6,
+    marginBottom: 0,
   },
   planCard: {
     backgroundColor: "#FFFFFF",
