@@ -91,8 +91,8 @@ const INTERIOR_BREAKDOWN = {
 };
 
 export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
-  const { type, projectData, projectName } = route.params;
-  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const { type, projectData, projectName, projectId } = route.params;
+  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits, role } = useUser();
   const insets = useSafeAreaInsets();
 
   const [wizardStep, setWizardStep] = useState(1);
@@ -376,7 +376,7 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
       return;
     }
 
-    if (planTier !== "pro" && credits <= 0) {
+    if (!projectId && planTier !== "pro" && credits <= 0) {
       Alert.alert("Upgrade Required", "Insufficient credits. Please upgrade.", [
         { text: "Cancel" },
         { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
@@ -399,12 +399,6 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
 
             setIsSaving(true);
             try {
-              const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
-                user_uuid: user.id,
-              });
-
-              if (rpcError) throw rpcError;
-
               let savePayload = {};
               if (type === "flooring") savePayload = { area: carpetArea, flooringType, includeSkirting };
               else if (type === "painting") savePayload = { carpetArea, paintType, process: paintProcess, includeCeiling };
@@ -413,15 +407,35 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
               else if (type === "doors-windows") savePayload = { doorCount, doorType, windowCount, windowType, windowWidth, windowHeight };
               else if (type === "interior") savePayload = { area: carpetArea, quality: interiorQuality };
 
-              const { error: insertError } = await supabase.from("projects").insert({
-                user_id: user.id,
-                name: name.trim(),
-                type: type,
-                data: { ...savePayload, totalCost: calculations.total },
-                date: new Date().toISOString(),
-              });
+              let saveError;
+              if (projectId) {
+                const { error } = await supabase
+                  .from("projects")
+                  .update({
+                    name: name.trim(),
+                    data: { ...savePayload, totalCost: calculations.total },
+                    date: new Date().toISOString(),
+                  })
+                  .eq("id", projectId);
+                saveError = error;
+              } else {
+                const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
+                  user_uuid: user.id,
+                });
 
-              if (insertError) throw insertError;
+                if (rpcError) throw rpcError;
+
+                const { error } = await supabase.from("projects").insert({
+                  user_id: user.id,
+                  name: name.trim(),
+                  type: type,
+                  data: { ...savePayload, totalCost: calculations.total },
+                  date: new Date().toISOString(),
+                });
+                saveError = error;
+              }
+
+              if (saveError) throw saveError;
 
               await refreshProfile();
 
@@ -444,6 +458,18 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
   };
 
   const handleExportPDF = async () => {
+    if (!hasPaid && role !== "admin") {
+      Alert.alert(
+        "Upgrade Required",
+        "Exporting PDF reports is a premium feature. Please upgrade to unlock.",
+        [
+          { text: "Cancel" },
+          { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
+        ]
+      );
+      return;
+    }
+
     if (!calculations.breakdown) return;
     setIsExporting(true);
     try {

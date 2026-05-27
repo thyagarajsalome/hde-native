@@ -414,10 +414,11 @@ const ResultsStep = React.memo(({
 });
 
 export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
-  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits, role } = useUser();
   const insets = useSafeAreaInsets();
   const editProject = route.params?.projectData;
   const editName = route.params?.projectName;
+  const projectId = route.params?.projectId;
 
   // Wizard state
   const [wizardStep, setWizardStep] = useState(1);
@@ -571,7 +572,7 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
       return;
     }
 
-    if (planTier !== "pro" && credits <= 0) {
+    if (!projectId && planTier !== "pro" && credits <= 0) {
       Alert.alert("Upgrade Required", "You have 0 credits remaining. Please upgrade your plan.", [
         { text: "Cancel" },
         { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
@@ -609,26 +610,48 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
               const payload = {
                 user_id: user.id,
                 name: name.trim(),
-                calculator_type: "construction",
-                input_data: projectData,
-                result_data: { finalTotalCost, perSqftCost },
+                type: "construction",
+                data: {
+                  ...projectData,
+                  perSqftCost,
+                },
+                date: new Date().toISOString(),
               };
 
-              let insertError;
-              if (editProject) {
+              let saveError;
+              if (projectId) {
                 const { error } = await supabase
-                  .from("saved_projects")
-                  .update(payload)
-                  .eq("id", editProject.id);
-                insertError = error;
+                  .from("projects")
+                  .update({
+                    name: name.trim(),
+                    data: {
+                      ...projectData,
+                      perSqftCost,
+                    },
+                    date: new Date().toISOString(),
+                  })
+                  .eq("id", projectId);
+                saveError = error;
               } else {
+                const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
+                  user_uuid: user.id,
+                });
+
+                if (rpcError) {
+                  if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
+                    Alert.alert("Upgrade Required", rpcError.message);
+                    return;
+                  }
+                  throw rpcError;
+                }
+
                 const { error } = await supabase
-                  .from("saved_projects")
+                  .from("projects")
                   .insert(payload);
-                insertError = error;
+                saveError = error;
               }
 
-              if (insertError) throw insertError;
+              if (saveError) throw saveError;
 
               await refreshProfile();
 
@@ -649,9 +672,21 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
       "plain-text",
       editName || ""
     );
-  }, [user, planTier, credits, parsedArea, parsedParking, parsedWall, includeSump, quality, customRate, finalTotalCost, perSqftCost, breakdownData, savings.total, selectedSavings, editProject, editName, navigation, refreshProfile]);
+  }, [user, planTier, credits, parsedArea, parsedParking, parsedWall, includeSump, quality, customRate, finalTotalCost, perSqftCost, breakdownData, savings.total, selectedSavings, projectId, editName, navigation, refreshProfile]);
 
   const handleExportPDF = useCallback(async () => {
+    if (!hasPaid && role !== "admin") {
+      Alert.alert(
+        "Upgrade Required",
+        "Exporting PDF reports is a premium feature. Please upgrade to unlock.",
+        [
+          { text: "Cancel" },
+          { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
+        ]
+      );
+      return;
+    }
+
     setIsExporting(true);
     try {
       const formattedDate = new Date().toLocaleDateString("en-IN");
