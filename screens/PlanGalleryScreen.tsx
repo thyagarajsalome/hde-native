@@ -113,8 +113,8 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
 
       if (data) {
         const mappedData = data.map((plan: any) => {
-          let displayUrl = plan.file_url;
-          if (!displayUrl.startsWith("http")) {
+          let displayUrl = plan.file_url || "";
+          if (displayUrl && !displayUrl.startsWith("http")) {
             displayUrl = supabase.storage.from("house-plans").getPublicUrl(plan.file_url).data.publicUrl;
           }
           return { ...plan, displayUrl };

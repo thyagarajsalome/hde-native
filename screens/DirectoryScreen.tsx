@@ -20,12 +20,13 @@ interface Professional {
   name: string;
   category: string;
   city: string;
-  phone?: string;
-  company_name?: string;
-  experience?: number;
+  area?: string;
+  contact_number?: string;
+  whatsapp_number?: string;
+  years_of_experience?: number;
   is_verified?: boolean;
-  projects_completed?: number;
-  description?: string;
+  bio?: string;
+  email?: string;
 }
 
 const CATEGORIES = [
@@ -159,38 +160,32 @@ export const DirectoryScreen: React.FC<{ navigation: any }> = ({ navigation }) =
         </View>
 
         <View style={styles.cardBody}>
-          {item.company_name && (
-            <View style={styles.detailRow}>
-              <Ionicons name="business" size={14} color="#64748B" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{item.company_name}</Text>
-            </View>
-          )}
           <View style={styles.detailRow}>
             <Ionicons name="location" size={14} color="#64748B" style={styles.detailIcon} />
-            <Text style={styles.detailText}>{item.city}</Text>
+            <Text style={styles.detailText}>{item.area ? `${item.area}, ${item.city}` : item.city}</Text>
           </View>
-          {item.experience !== undefined && (
+          {item.years_of_experience !== undefined && (
             <View style={styles.detailRow}>
               <Ionicons name="ribbon" size={14} color="#64748B" style={styles.detailIcon} />
-              <Text style={styles.detailText}>{item.experience} Years Experience</Text>
+              <Text style={styles.detailText}>{item.years_of_experience} Years Experience</Text>
             </View>
           )}
-          {item.description && (
-            <Text style={styles.descText} numberOfLines={2}>{item.description}</Text>
+          {item.bio && (
+            <Text style={styles.descText} numberOfLines={2}>{item.bio}</Text>
           )}
         </View>
 
         <View style={styles.actions}>
           <TouchableOpacity
             style={[styles.btnAction, styles.btnCall]}
-            onPress={() => contactPro(item.phone)}
+            onPress={() => contactPro(item.contact_number)}
           >
             <Ionicons name="call" size={16} color="#1E293B" style={{ marginRight: 6 }} />
             <Text style={styles.btnTextCall}>Call Pro</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btnAction, styles.btnChat]}
-            onPress={() => contactWhatsapp(item.phone, item.name)}
+            onPress={() => contactWhatsapp(item.contact_number, item.name)}
           >
             <Ionicons name="logo-whatsapp" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
             <Text style={styles.btnTextChat}>WhatsApp</Text>
