@@ -56,10 +56,16 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error("Error fetching profile from Supabase:", error);
         }
         
+        const finalPlanTier = data?.plan_tier || (data?.has_paid ? 'pro' : 'free');
+        setPlanTier(finalPlanTier);
         setHasPaid(data?.has_paid || false);
-        setPlanTier(data?.plan_tier || (data?.has_paid ? 'pro' : 'free'));
         setRole(data?.role || 'user');
-        setCredits(data?.credits || 0);
+        
+        let finalCredits = data?.credits || 0;
+        if (finalPlanTier === 'pro' && finalCredits < 100) {
+          finalCredits = 100;
+        }
+        setCredits(finalCredits);
         fetchedUserIdRef.current = userId;
       } catch (err) {
         console.error("Unexpected error fetching profile:", err);

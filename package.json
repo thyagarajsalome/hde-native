@@ -13,7 +13,8 @@
     "inspect-db": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\inspect-columns.js",
     "test-tables": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-tables.js",
     "test-upsert": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-upsert.js",
-    "test-auth-and-rls": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-auth-and-rls.js"
+    "test-auth-and-rls": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-auth-and-rls.js",
+    "inspect-iap": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\inspect-iap.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

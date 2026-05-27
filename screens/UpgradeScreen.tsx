@@ -120,6 +120,11 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
                 if (firstOffer && firstOffer.offerToken) {
                   offersMap[sub.productId] = firstOffer.offerToken;
                 }
+              } else if (sub.subscriptionOfferDetailsAndroid && sub.subscriptionOfferDetailsAndroid.length > 0) {
+                const firstOffer = sub.subscriptionOfferDetailsAndroid[0];
+                if (firstOffer && firstOffer.offerToken) {
+                  offersMap[sub.productId] = firstOffer.offerToken;
+                }
               }
             });
             setSubscriptionOffers(offersMap);
@@ -207,7 +212,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       currentCredits = credits || 0;
     }
 
-    const finalCredits = currentCredits + creditsCount;
+    const finalCredits = tierName === "pro" ? 100 : currentCredits + creditsCount;
 
     try {
       const { error } = await supabase
@@ -267,16 +272,15 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
           type: "in-app"
         });
       } else {
-        const offerToken = subscriptionOffers[planId];
+        const offerToken = subscriptionOffers[planId] || "";
         if (Platform.OS === "android" && !offerToken) {
-          Alert.alert("Store Error", "Could not retrieve the subscription offer details from Google Play.");
-          return;
+          console.warn(`No subscription offer token found for ${planId}, attempting checkout with empty token...`);
         }
         await IAP.requestPurchase({
           request: {
             google: {
               skus: [planId],
-              subscriptionOffers: [{ sku: planId, offerToken: offerToken || "" }]
+              subscriptionOffers: [{ sku: planId, offerToken }]
             },
             apple: { sku: planId }
           },
@@ -340,7 +344,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             currentCredits = credits || 0;
           }
 
-          const finalCredits = currentCredits + restoredCreditsToAdd;
+          const finalCredits = restoredTier === "pro" ? 100 : currentCredits + restoredCreditsToAdd;
 
           const { error } = await supabase
             .from("profiles")

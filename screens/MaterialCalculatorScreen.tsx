@@ -427,7 +427,7 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
           </head>
           <body>
             <div class="report-header">
-              <h1 class="logo-title">HOME DESIGN <span>ENGLISH</span></h1>
+              <h1 class="logo-title">HDE</h1>
               <div class="report-tag">MATERIAL BILL OF QUANTITIES (BOQ) • Generated on ${formattedDate}</div>
             </div>
 

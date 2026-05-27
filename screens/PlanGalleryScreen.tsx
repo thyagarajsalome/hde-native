@@ -170,25 +170,35 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
 
     setDownloadingId(plan.id);
     try {
-      const filename = plan.title.replace(/\s+/g, "_") + ".jpg";
-      const fileUri = (FileSystem as any).documentDirectory + filename;
+      const fileExt = plan.file_url.split('.').pop() || 'webp';
+      const filename = `${plan.title.replace(/[^a-zA-Z0-9]/g, "_")}.${fileExt}`;
+      const finalUrl = plan.displayUrl || plan.file_url;
+      const finalUrlEncoded = encodeURI(finalUrl);
 
-      // Resolve the relative file URL to a public downloadable URL if needed
-      let finalUrl = plan.file_url;
-      if (!finalUrl.startsWith("http")) {
-        finalUrl = supabase.storage.from("house-plans").getPublicUrl(plan.file_url).data.publicUrl;
-      }
-
-      const { uri } = await FileSystem.downloadAsync(finalUrl, fileUri);
-      
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri);
+      if (Platform.OS === 'android') {
+        const saf = (FileSystem as any).StorageAccessFramework;
+        const permissions = await saf.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          const mimeType = fileExt === 'webp' ? 'image/webp' : fileExt === 'pdf' ? 'application/pdf' : 'image/jpeg';
+          const fileUri = await saf.createFileAsync(
+            permissions.directoryUri,
+            filename,
+            mimeType
+          );
+          
+          await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+          Alert.alert("Success", "Plan has been saved to your selected folder successfully!");
+        } else {
+          Alert.alert("Permission Required", "Storage permission is required to save the plan to your device.");
+        }
       } else {
-        Alert.alert("Success", "Plan downloaded to device: " + uri);
+        const fileUri = (FileSystem as any).documentDirectory + filename;
+        await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+        await Sharing.shareAsync(fileUri);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Download error:", err);
-      Alert.alert("Error", "Failed to download the plan sheet.");
+      Alert.alert("Download Failed", `Could not save plan sheet: ${err.message || err}`);
     } finally {
       setDownloadingId(null);
     }
@@ -326,7 +336,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
                     ) : (
                       <>
                         <Ionicons name="download" size={18} color="#1E293B" style={styles.iconMarginRight6} />
-                        <Text style={styles.btnPrimaryText}>Share & Download Plan</Text>
+                        <Text style={styles.btnPrimaryText}>Download Plan</Text>
                       </>
                     )}
                   </TouchableOpacity>

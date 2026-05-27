@@ -729,7 +729,7 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
           </head>
           <body>
             <div class="report-header">
-              <h1 class="logo-title">HOME DESIGN <span>ENGLISH</span></h1>
+              <h1 class="logo-title">HDE</h1>
               <div class="report-tag">HOUSE CONSTRUCTION COST REPORT • Generated on ${formattedDate}</div>
             </div>
 

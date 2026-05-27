@@ -2,7 +2,7 @@
   "expo": {
     "name": "HDE",
     "slug": "hde-native",
-    "version": "1.0.29",
+    "version": "1.0.30",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hdenative",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "in.toolwebsite.twa",
-      "versionCode": 29,
+      "versionCode": 30,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1E293B"
