@@ -75,7 +75,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const { width } = useWindowDimensions();
   const isTablet = width > 768;
 
-  const { user, planTier, refreshProfile } = useUser();
+  const { user, planTier, credits, refreshProfile } = useUser();
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [subscriptionOffers, setSubscriptionOffers] = useState<{ [sku: string]: string }>({});
   const [loading, setLoading] = useState(false);
@@ -90,6 +90,23 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     const initIAP = async () => {
       try {
         await IAP.initConnection();
+
+        // Consume any stuck one-time purchases so they can be bought again
+        try {
+          const purchases = await IAP.getAvailablePurchases();
+          for (const p of purchases) {
+            if (p.productId === "hde.basic.199" || p.productId === "hde.standard.349") {
+              try {
+                await IAP.finishTransaction({ purchase: p, isConsumable: true });
+                console.log("Successfully consumed stuck purchase on mount:", p.productId);
+              } catch (finishErr) {
+                console.warn(`Failed to consume purchase ${p.productId} on mount:`, finishErr);
+              }
+            }
+          }
+        } catch (consumeErr) {
+          console.warn("Failed to consume available purchases on mount:", consumeErr);
+        }
 
         try {
           await IAP.fetchProducts({ skus: itemSkus, type: "in-app" });
@@ -117,7 +134,8 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             try {
               setLoading(true);
               await handlePurchaseSuccess(purchase);
-              await IAP.finishTransaction({ purchase, isConsumable: false });
+              const isConsumable = purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349";
+              await IAP.finishTransaction({ purchase, isConsumable });
             } catch (err) {
               console.error("Error finishing transaction:", err);
             } finally {
@@ -171,13 +189,33 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       creditsCount = 5;
     }
 
+    // Fetch user's current credits from Supabase database to increment it correctly
+    let currentCredits = 0;
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("credits")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!error && data) {
+        currentCredits = data.credits || 0;
+      } else {
+        currentCredits = credits || 0;
+      }
+    } catch (dbErr) {
+      console.warn("Failed to fetch database credits, falling back to context:", dbErr);
+      currentCredits = credits || 0;
+    }
+
+    const finalCredits = currentCredits + creditsCount;
+
     try {
       const { error } = await supabase
         .from("profiles")
         .update({
           has_paid: true,
           plan_tier: tierName,
-          credits: creditsCount,
+          credits: finalCredits,
           updated_at: new Date().toISOString(),
         })
         .eq("id", user.id);
@@ -261,37 +299,70 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       const purchases = await IAP.getAvailablePurchases();
       if (purchases && purchases.length > 0) {
         let restoredTier: "basic" | "standard" | "pro" | null = null;
-        let restoredCredits = 0;
+        let restoredCreditsToAdd = 0;
 
         for (const purchase of purchases) {
           if (purchase.productId === "hdepro") {
             restoredTier = "pro";
-            restoredCredits = 100;
+            restoredCreditsToAdd = 100;
           } else if (purchase.productId === "hde.standard.349") {
             if (restoredTier !== "pro") {
               restoredTier = "standard";
-              restoredCredits = 10;
             }
+            restoredCreditsToAdd += 10;
           } else if (purchase.productId === "hde.basic.199") {
             if (restoredTier !== "pro" && restoredTier !== "standard") {
               restoredTier = "basic";
-              restoredCredits = 5;
             }
+            restoredCreditsToAdd += 5;
           }
         }
 
         if (restoredTier) {
+          // Fetch current database credits to increment them correctly
+          let currentCredits = 0;
+          try {
+            const { data, error } = await supabase
+              .from("profiles")
+              .select("credits")
+              .eq("id", user.id)
+              .maybeSingle();
+            if (!error && data) {
+              currentCredits = data.credits || 0;
+            } else {
+              currentCredits = credits || 0;
+            }
+          } catch (dbErr) {
+            console.warn("Restore: Failed to fetch database credits, falling back to context:", dbErr);
+            currentCredits = credits || 0;
+          }
+
+          const finalCredits = currentCredits + restoredCreditsToAdd;
+
           const { error } = await supabase
             .from("profiles")
             .update({
               has_paid: true,
               plan_tier: restoredTier,
-              credits: restoredCredits,
+              credits: finalCredits,
               updated_at: new Date().toISOString(),
             })
             .eq("id", user.id);
 
           if (error) throw error;
+
+          // Consume the restored consumable purchases so they are finished in Google Play
+          for (const purchase of purchases) {
+            if (purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349") {
+              try {
+                await IAP.finishTransaction({ purchase, isConsumable: true });
+                console.log(`Consumed stuck purchase during restore: ${purchase.productId}`);
+              } catch (finishErr) {
+                console.warn(`Failed to consume purchase ${purchase.productId} during restore:`, finishErr);
+              }
+            }
+          }
+
           await refreshProfile();
           Alert.alert("Success", "Your purchases have been successfully restored!");
         } else {

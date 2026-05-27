@@ -66,6 +66,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
         webClientId: webClientId,
         offlineAccess: true,
       });
+    } else {
+      console.warn("EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID is not configured in your environment variables. Google Sign-In will not be initialized.");
     }
   }, []);
 

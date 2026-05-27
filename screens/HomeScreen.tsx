@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -14,6 +14,7 @@ import { useUser } from "../context/UserContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../navigation/RootNavigator";
+import { useFocusEffect } from "@react-navigation/native";
 
 type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, "MainTabs">;
 
@@ -105,9 +106,17 @@ const calculators: CalculatorItem[] = [
 ];
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
-  const { user, hasPaid, planTier, role } = useUser();
+  const { user, hasPaid, planTier, role, credits, refreshProfile } = useUser();
   const insets = useSafeAreaInsets();
   const userTierValue = { free: 0, basic: 1, standard: 2, pro: 3 }[planTier || "free"] || 0;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        refreshProfile();
+      }
+    }, [user])
+  );
 
   const handlePress = (calc: CalculatorItem) => {
     if (!user && calc.minTier > 0) {
@@ -166,7 +175,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
+        {user && (
+          <View style={styles.creditCard}>
+            <View style={styles.creditInfo}>
+              <View style={styles.tierContainer}>
+                <Ionicons name="sparkles" size={16} color="#D9A443" style={{ marginRight: 6 }} />
+                <Text style={styles.creditCardTitle}>
+                  Plan: <Text style={styles.tierName}>{planTier.toUpperCase()}</Text>
+                </Text>
+              </View>
+              <Text style={styles.creditBalanceText}>
+                Remaining Balance: <Text style={styles.creditCount}>{credits}</Text> Project Credits
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={styles.creditUpgradeBtn}
+              onPress={() => navigation.navigate("Upgrade")}
+            >
+              <Text style={styles.creditUpgradeBtnText}>Upgrade</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Grid Section Title */}
         <Text style={styles.sectionTitle}>Estimation Tools</Text>
@@ -396,6 +425,57 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#64748B",
     lineHeight: 14,
+  },
+  creditCard: {
+    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 20,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  creditInfo: {
+    flex: 1,
+  },
+  tierContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  creditCardTitle: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#1E293B",
+  },
+  tierName: {
+    color: "#D9A443",
+  },
+  creditBalanceText: {
+    fontSize: 12,
+    color: "#64748B",
+  },
+  creditCount: {
+    fontWeight: "bold",
+    color: "#1E293B",
+  },
+  creditUpgradeBtn: {
+    backgroundColor: "#1E293B",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  creditUpgradeBtnText: {
+    color: "#D9A443",
+    fontSize: 12,
+    fontWeight: "bold",
   },
 });
 
