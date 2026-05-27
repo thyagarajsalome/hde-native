@@ -177,19 +177,36 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
 
       if (Platform.OS === 'android') {
         const saf = (FileSystem as any).StorageAccessFramework;
-        const permissions = await saf.requestDirectoryPermissionsAsync();
-        if (permissions.granted) {
-          const mimeType = fileExt === 'webp' ? 'image/webp' : fileExt === 'pdf' ? 'application/pdf' : 'image/jpeg';
-          const fileUri = await saf.createFileAsync(
-            permissions.directoryUri,
-            filename,
-            mimeType
-          );
-          
-          await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
-          Alert.alert("Success", "Plan has been saved to your selected folder successfully!");
+        if (saf && typeof saf.requestDirectoryPermissionsAsync === 'function') {
+          try {
+            const permissions = await saf.requestDirectoryPermissionsAsync();
+            if (permissions.granted) {
+              const mimeType = fileExt === 'webp' ? 'image/webp' : fileExt === 'pdf' ? 'application/pdf' : 'image/jpeg';
+              const fileUri = await saf.createFileAsync(
+                permissions.directoryUri,
+                filename,
+                mimeType
+              );
+              
+              await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+              Alert.alert("Success", "Plan has been saved to your selected folder successfully!");
+            } else {
+              console.log("Permission denied/cancelled for SAF, using sharing fallback...");
+              const fileUri = (FileSystem as any).documentDirectory + filename;
+              await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+              await Sharing.shareAsync(fileUri);
+            }
+          } catch (safErr) {
+            console.warn("StorageAccessFramework execution failed, using fallback:", safErr);
+            const fileUri = (FileSystem as any).documentDirectory + filename;
+            await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+            await Sharing.shareAsync(fileUri);
+          }
         } else {
-          Alert.alert("Permission Required", "Storage permission is required to save the plan to your device.");
+          console.warn("StorageAccessFramework is unavailable on this device, using fallback...");
+          const fileUri = (FileSystem as any).documentDirectory + filename;
+          await FileSystem.downloadAsync(finalUrlEncoded, fileUri);
+          await Sharing.shareAsync(fileUri);
         }
       } else {
         const fileUri = (FileSystem as any).documentDirectory + filename;

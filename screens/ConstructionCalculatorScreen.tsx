@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Switch,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -424,6 +425,8 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
   const [wizardStep, setWizardStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [saveProjectName, setSaveProjectName] = useState(editName || "");
 
   // Form states
   const [area, setArea] = useState("");
@@ -563,7 +566,7 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
     );
   }, []);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(() => {
     if (!user) {
       Alert.alert("Sign In Required", "Please sign in to save this project.", [
         { text: "Cancel" },
@@ -572,7 +575,7 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
       return;
     }
 
-    if (!projectId && planTier !== "pro" && credits <= 0) {
+    if (!projectId && credits <= 0) {
       Alert.alert("Upgrade Required", "You have 0 credits remaining. Please upgrade your plan.", [
         { text: "Cancel" },
         { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
@@ -580,99 +583,92 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
       return;
     }
 
-    Alert.prompt(
-      "Save Project",
-      "Enter a name for this estimation draft:",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Save",
-          onPress: async (name?: string) => {
-            if (!name || !name.trim()) {
-              Alert.alert("Invalid Name", "Project name cannot be empty.");
-              return;
-            }
-            setIsSaving(true);
-            try {
-              const projectData = {
-                area: parsedArea,
-                parkingArea: parsedParking,
-                compoundWallLength: parsedWall,
-                includeSump,
-                quality,
-                rate: customRate,
-                totalCost: finalTotalCost,
-                breakdown: breakdownData,
-                savings: savings.total,
-                savingsList: selectedSavings,
-              };
+    setSaveProjectName(editName || "");
+    setSaveModalVisible(true);
+  }, [user, planTier, credits, projectId, editName, navigation]);
 
-              const payload = {
-                user_id: user.id,
-                name: name.trim(),
-                type: "construction",
-                data: {
-                  ...projectData,
-                  perSqftCost,
-                },
-                date: new Date().toISOString(),
-              };
+  const confirmSaveProject = async () => {
+    if (!saveProjectName || !saveProjectName.trim()) {
+      Alert.alert("Invalid Name", "Project name cannot be empty.");
+      return;
+    }
 
-              let saveError;
-              if (projectId) {
-                const { error } = await supabase
-                  .from("projects")
-                  .update({
-                    name: name.trim(),
-                    data: {
-                      ...projectData,
-                      perSqftCost,
-                    },
-                    date: new Date().toISOString(),
-                  })
-                  .eq("id", projectId);
-                saveError = error;
-              } else {
-                const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
-                  user_uuid: user.id,
-                });
+    setSaveModalVisible(false);
+    setIsSaving(true);
+    try {
+      const projectData = {
+        area: parsedArea,
+        parkingArea: parsedParking,
+        compoundWallLength: parsedWall,
+        includeSump,
+        quality,
+        rate: customRate,
+        totalCost: finalTotalCost,
+        breakdown: breakdownData,
+        savings: savings.total,
+        savingsList: selectedSavings,
+      };
 
-                if (rpcError) {
-                  if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
-                    Alert.alert("Upgrade Required", rpcError.message);
-                    return;
-                  }
-                  throw rpcError;
-                }
-
-                const { error } = await supabase
-                  .from("projects")
-                  .insert(payload);
-                saveError = error;
-              }
-
-              if (saveError) throw saveError;
-
-              await refreshProfile();
-
-              // Clear local draft
-              const draftKey = `hde_draft_${user.id}_construction`;
-              await AsyncStorage.removeItem(draftKey);
-
-              Alert.alert("Success", "Project saved successfully!");
-            } catch (err: any) {
-              console.error("Save error:", err);
-              Alert.alert("Save Failed", err.message || "Failed to save project.");
-            } finally {
-              setIsSaving(false);
-            }
-          },
+      const payload = {
+        user_id: user!.id,
+        name: saveProjectName.trim(),
+        type: "construction",
+        data: {
+          ...projectData,
+          perSqftCost,
         },
-      ],
-      "plain-text",
-      editName || ""
-    );
-  }, [user, planTier, credits, parsedArea, parsedParking, parsedWall, includeSump, quality, customRate, finalTotalCost, perSqftCost, breakdownData, savings.total, selectedSavings, projectId, editName, navigation, refreshProfile]);
+        date: new Date().toISOString(),
+      };
+
+      let saveError;
+      if (projectId) {
+        const { error } = await supabase
+          .from("projects")
+          .update({
+            name: saveProjectName.trim(),
+            data: {
+              ...projectData,
+              perSqftCost,
+            },
+            date: new Date().toISOString(),
+          })
+          .eq("id", projectId);
+        saveError = error;
+      } else {
+        const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
+          user_uuid: user!.id,
+        });
+
+        if (rpcError) {
+          if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
+            Alert.alert("Upgrade Required", rpcError.message);
+            return;
+          }
+          throw rpcError;
+        }
+
+        const { error } = await supabase
+          .from("projects")
+          .insert(payload);
+        saveError = error;
+      }
+
+      if (saveError) throw saveError;
+
+      await refreshProfile();
+
+      // Clear local draft
+      const draftKey = `hde_draft_${user!.id}_construction`;
+      await AsyncStorage.removeItem(draftKey);
+
+      Alert.alert("Success", "Project saved successfully!");
+    } catch (err: any) {
+      console.error("Save error:", err);
+      Alert.alert("Save Failed", err.message || "Failed to save project.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const handleExportPDF = useCallback(async () => {
     if (!hasPaid && role !== "admin") {
@@ -862,6 +858,43 @@ export const ConstructionCalculatorScreen: React.FC<{ route: any; navigation: an
           />
         )}
       </ScrollView>
+
+      {/* Save Project Custom Modal */}
+      <Modal
+        visible={saveModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSaveModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Save Project</Text>
+            <Text style={styles.modalLabel}>Enter a name for this estimation draft:</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={saveProjectName}
+              onChangeText={setSaveProjectName}
+              placeholder="e.g. My Dream House"
+              placeholderTextColor="#94A3B8"
+              autoFocus={true}
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setSaveModalVisible(false)}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnTextCancel]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnSave]}
+                onPress={confirmSaveProject}
+              >
+                <Text style={styles.modalBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1232,6 +1265,74 @@ const styles = StyleSheet.create({
   },
   flexOne: {
     flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 380,
+    padding: 20,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#1E293B",
+    marginBottom: 12,
+  },
+  modalLabel: {
+    fontSize: 13,
+    color: "#475569",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#1E293B",
+    marginBottom: 20,
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  modalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginLeft: 12,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnCancel: {
+    backgroundColor: "#F1F5F9",
+  },
+  modalBtnSave: {
+    backgroundColor: "#D9A443",
+  },
+  modalBtnText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  modalBtnTextCancel: {
+    color: "#475569",
   },
 });
 

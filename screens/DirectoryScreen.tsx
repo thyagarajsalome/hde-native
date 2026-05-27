@@ -10,6 +10,7 @@ import {
   Linking,
   Alert,
   SafeAreaView,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
@@ -54,6 +55,27 @@ export const DirectoryScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
+  const [alertModal, setAlertModal] = useState<{
+    visible: boolean;
+    title: string;
+    message: string;
+    buttons: { text: string; onPress?: () => void; isPrimary?: boolean }[];
+  }>({
+    visible: false,
+    title: "",
+    message: "",
+    buttons: [],
+  });
+
+  const showAlert = (title: string, message: string, buttons?: { text: string; onPress?: () => void; isPrimary?: boolean }[]) => {
+    setAlertModal({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: "OK", onPress: () => setAlertModal(prev => ({ ...prev, visible: false })) }],
+    });
+  };
+
   const PAGE_SIZE = 10;
 
   const fetchPros = useCallback(async (pageNum: number, clearOld = false) => {
@@ -88,7 +110,7 @@ export const DirectoryScreen: React.FC<{ navigation: any }> = ({ navigation }) =
       }
     } catch (err: any) {
       console.error("Error fetching professionals:", err);
-      Alert.alert("Error", "Failed to retrieve local professionals.");
+      showAlert("Error", "Failed to retrieve local professionals.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -120,24 +142,60 @@ export const DirectoryScreen: React.FC<{ navigation: any }> = ({ navigation }) =
   };
 
   const contactPro = (phone?: string) => {
+    if (!user) {
+      showAlert(
+        "Sign In Required",
+        "Please sign in to view contact details and call this professional.",
+        [
+          { text: "Cancel", onPress: () => setAlertModal(prev => ({ ...prev, visible: false })) },
+          { 
+            text: "Sign In", 
+            onPress: () => {
+              setAlertModal(prev => ({ ...prev, visible: false }));
+              navigation.navigate("Login");
+            },
+            isPrimary: true
+          }
+        ]
+      );
+      return;
+    }
     if (!phone) {
-      Alert.alert("Unavailable", "This professional has not listed a contact number.");
+      showAlert("Unavailable", "This professional has not listed a contact number.");
       return;
     }
     Linking.openURL(`tel:${phone}`).catch(() => {
-      Alert.alert("Error", "Could not initiate call on your device.");
+      showAlert("Error", "Could not initiate call on your device.");
     });
   };
 
   const contactWhatsapp = (phone?: string, name?: string) => {
+    if (!user) {
+      showAlert(
+        "Sign In Required",
+        "Please sign in to view contact details and message this professional on WhatsApp.",
+        [
+          { text: "Cancel", onPress: () => setAlertModal(prev => ({ ...prev, visible: false })) },
+          { 
+            text: "Sign In", 
+            onPress: () => {
+              setAlertModal(prev => ({ ...prev, visible: false }));
+              navigation.navigate("Login");
+            },
+            isPrimary: true
+          }
+        ]
+      );
+      return;
+    }
     if (!phone) {
-      Alert.alert("Unavailable", "This professional has not listed a contact number.");
+      showAlert("Unavailable", "This professional has not listed a contact number.");
       return;
     }
     const cleanPhone = phone.replace(/[^0-9]/g, "");
     const msg = encodeURIComponent(`Hello ${name || ""}, I found your contact listing on Home Design English (HDE).`);
     Linking.openURL(`https://wa.me/${cleanPhone.startsWith("91") ? cleanPhone : "91" + cleanPhone}?text=${msg}`).catch(() => {
-      Alert.alert("Error", "Could not open WhatsApp on your device.");
+      showAlert("Error", "Could not open WhatsApp on your device.");
     });
   };
 
@@ -280,6 +338,47 @@ export const DirectoryScreen: React.FC<{ navigation: any }> = ({ navigation }) =
           ) : null
         }
       />
+
+      {/* Custom Styled Alert Modal */}
+      <Modal
+        visible={alertModal.visible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setAlertModal(prev => ({ ...prev, visible: false }))}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeaderIcon}>
+              <Ionicons 
+                name={alertModal.title.toLowerCase().includes("error") ? "alert-circle" : "information-circle"} 
+                size={36} 
+                color={alertModal.title.toLowerCase().includes("error") ? "#EF4444" : "#D9A443"} 
+              />
+            </View>
+            <Text style={styles.modalTitle}>{alertModal.title}</Text>
+            <Text style={styles.modalLabel}>{alertModal.message}</Text>
+            <View style={styles.modalBtnRow}>
+              {alertModal.buttons.map((btn, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.modalBtn, 
+                    btn.isPrimary ? styles.modalBtnSave : styles.modalBtnCancel
+                  ]}
+                  onPress={btn.onPress || (() => setAlertModal(prev => ({ ...prev, visible: false })))}
+                >
+                  <Text style={[
+                    styles.modalBtnText, 
+                    !btn.isPrimary && styles.modalBtnTextCancel
+                  ]}>
+                    {btn.text}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -502,6 +601,70 @@ const styles = StyleSheet.create({
     color: "#1E293B",
     fontSize: 11,
     fontWeight: "bold",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 340,
+    padding: 20,
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalHeaderIcon: {
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#1E293B",
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  modalLabel: {
+    fontSize: 13,
+    color: "#475569",
+    marginBottom: 20,
+    lineHeight: 18,
+    textAlign: "center",
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    width: "100%",
+  },
+  modalBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: 8,
+    marginHorizontal: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnCancel: {
+    backgroundColor: "#F1F5F9",
+  },
+  modalBtnSave: {
+    backgroundColor: "#D9A443",
+  },
+  modalBtnText: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  modalBtnTextCancel: {
+    color: "#475569",
   },
 });
 

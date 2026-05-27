@@ -62,9 +62,6 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setRole(data?.role || 'user');
         
         let finalCredits = data?.credits || 0;
-        if (finalPlanTier === 'pro' && finalCredits < 100) {
-          finalCredits = 100;
-        }
         setCredits(finalCredits);
         fetchedUserIdRef.current = userId;
       } catch (err) {

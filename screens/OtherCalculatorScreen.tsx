@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Switch,
+  Modal,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -98,6 +99,8 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
   const [wizardStep, setWizardStep] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [saveProjectName, setSaveProjectName] = useState(projectName || "");
 
   // Dynamic state hooks for forms
   const [carpetArea, setCarpetArea] = useState("");
@@ -367,7 +370,7 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
     return { total: 0 };
   }, [type, carpetArea, flooringType, includeSkirting, includeCeiling, paintType, paintProcess, kitchens, commonBaths, masterBaths, includeMotor, plumbingQuality, lightPoints, fanPoints, powerPoints, acPoints, geyserPoints, elecQuality, doorCount, doorType, windowCount, windowType, windowWidth, windowHeight, interiorQuality, hasPaid]);
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!user) {
       Alert.alert("Sign In Required", "Please sign in to save estimates.", [
         { text: "Cancel" },
@@ -376,7 +379,7 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
       return;
     }
 
-    if (!projectId && planTier !== "pro" && credits <= 0) {
+    if (!projectId && credits <= 0) {
       Alert.alert("Upgrade Required", "Insufficient credits. Please upgrade.", [
         { text: "Cancel" },
         { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
@@ -384,77 +387,69 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
       return;
     }
 
-    Alert.prompt(
-      "Save Project",
-      "Enter a name for this estimate:",
-      [
-        { text: "Cancel" },
-        {
-          text: "Save",
-          onPress: async (name?: string) => {
-            if (!name || name.trim() === "") {
-              Alert.alert("Error", "Name is required");
-              return;
-            }
+    setSaveProjectName(projectName || "");
+    setSaveModalVisible(true);
+  };
 
-            setIsSaving(true);
-            try {
-              let savePayload = {};
-              if (type === "flooring") savePayload = { area: carpetArea, flooringType, includeSkirting };
-              else if (type === "painting") savePayload = { carpetArea, paintType, process: paintProcess, includeCeiling };
-              else if (type === "plumbing") savePayload = { kitchens, commonBaths, masterBaths, includeMotor, quality: plumbingQuality };
-              else if (type === "electrical") savePayload = { lightPoints, fanPoints, powerPoints, acPoints, geyserPoints, quality: elecQuality };
-              else if (type === "doors-windows") savePayload = { doorCount, doorType, windowCount, windowType, windowWidth, windowHeight };
-              else if (type === "interior") savePayload = { area: carpetArea, quality: interiorQuality };
+  const confirmSaveProject = async () => {
+    if (!saveProjectName || !saveProjectName.trim()) {
+      Alert.alert("Error", "Name is required");
+      return;
+    }
 
-              let saveError;
-              if (projectId) {
-                const { error } = await supabase
-                  .from("projects")
-                  .update({
-                    name: name.trim(),
-                    data: { ...savePayload, totalCost: calculations.total },
-                    date: new Date().toISOString(),
-                  })
-                  .eq("id", projectId);
-                saveError = error;
-              } else {
-                const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
-                  user_uuid: user.id,
-                });
+    setSaveModalVisible(false);
+    setIsSaving(true);
+    try {
+      let savePayload = {};
+      if (type === "flooring") savePayload = { area: carpetArea, flooringType, includeSkirting };
+      else if (type === "painting") savePayload = { carpetArea, paintType, process: paintProcess, includeCeiling };
+      else if (type === "plumbing") savePayload = { kitchens, commonBaths, masterBaths, includeMotor, quality: plumbingQuality };
+      else if (type === "electrical") savePayload = { lightPoints, fanPoints, powerPoints, acPoints, geyserPoints, quality: elecQuality };
+      else if (type === "doors-windows") savePayload = { doorCount, doorType, windowCount, windowType, windowWidth, windowHeight };
+      else if (type === "interior") savePayload = { area: carpetArea, quality: interiorQuality };
 
-                if (rpcError) throw rpcError;
+      let saveError;
+      if (projectId) {
+        const { error } = await supabase
+          .from("projects")
+          .update({
+            name: saveProjectName.trim(),
+            data: { ...savePayload, totalCost: calculations.total },
+            date: new Date().toISOString(),
+          })
+          .eq("id", projectId);
+        saveError = error;
+      } else {
+        const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
+          user_uuid: user!.id,
+        });
 
-                const { error } = await supabase.from("projects").insert({
-                  user_id: user.id,
-                  name: name.trim(),
-                  type: type,
-                  data: { ...savePayload, totalCost: calculations.total },
-                  date: new Date().toISOString(),
-                });
-                saveError = error;
-              }
+        if (rpcError) throw rpcError;
 
-              if (saveError) throw saveError;
+        const { error } = await supabase.from("projects").insert({
+          user_id: user!.id,
+          name: saveProjectName.trim(),
+          type: type,
+          data: { ...savePayload, totalCost: calculations.total },
+          date: new Date().toISOString(),
+        });
+        saveError = error;
+      }
 
-              await refreshProfile();
+      if (saveError) throw saveError;
 
-              const draftKey = `hde_draft_${user.id}_${type}`;
-              await AsyncStorage.removeItem(draftKey);
+      await refreshProfile();
 
-              Alert.alert("Success", "Project saved successfully!");
-            } catch (err: any) {
-              console.error("Save error:", err);
-              Alert.alert("Error", "Failed to save project.");
-            } finally {
-              setIsSaving(false);
-            }
-          },
-        },
-      ],
-      "plain-text",
-      projectName || ""
-    );
+      const draftKey = `hde_draft_${user!.id}_${type}`;
+      await AsyncStorage.removeItem(draftKey);
+
+      Alert.alert("Success", "Project saved successfully!");
+    } catch (err: any) {
+      console.error("Save error:", err);
+      Alert.alert("Error", "Failed to save project.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleExportPDF = async () => {
@@ -992,6 +987,43 @@ export const OtherCalculatorScreen: React.FC<{ route: any; navigation: any }> = 
           renderResults()
         )}
       </ScrollView>
+
+      {/* Save Project Custom Modal */}
+      <Modal
+        visible={saveModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSaveModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Save Estimate</Text>
+            <Text style={styles.modalLabel}>Enter a name for this estimate:</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={saveProjectName}
+              onChangeText={setSaveProjectName}
+              placeholder="e.g. My Estimate Draft"
+              placeholderTextColor="#94A3B8"
+              autoFocus={true}
+            />
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+                onPress={() => setSaveModalVisible(false)}
+              >
+                <Text style={[styles.modalBtnText, styles.modalBtnTextCancel]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalBtn, styles.modalBtnSave]}
+                onPress={confirmSaveProject}
+              >
+                <Text style={styles.modalBtnText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1215,6 +1247,74 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     minWidth: 70,
     textAlign: "right",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  modalContainer: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    width: "100%",
+    maxWidth: 380,
+    padding: 20,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#1E293B",
+    marginBottom: 12,
+  },
+  modalLabel: {
+    fontSize: 13,
+    color: "#475569",
+    marginBottom: 12,
+    lineHeight: 18,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#1E293B",
+    marginBottom: 20,
+  },
+  modalBtnRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  modalBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginLeft: 12,
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnCancel: {
+    backgroundColor: "#F1F5F9",
+  },
+  modalBtnSave: {
+    backgroundColor: "#D9A443",
+  },
+  modalBtnText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+  },
+  modalBtnTextCancel: {
+    color: "#475569",
   },
 });
 

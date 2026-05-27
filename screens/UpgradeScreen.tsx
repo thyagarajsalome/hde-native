@@ -57,12 +57,12 @@ const plans = [
     id: "hdepro",
     price: "999",
     originalPrice: "1,427",
-    type: "mo",
-    credits: "High-Volume Usage",
+    type: "once",
+    credits: "100 Project Credits",
     color: "#64748B", // Slate
     icon: "ribbon",
     features: [
-      "100 Monthly Project Saves",
+      "100 Project Saves",
       "10 Daily Save Limit (Anti-Bot)",
       "Everything in Standard",
       "Material BOQ (Bill of Quantities)",
@@ -80,8 +80,8 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
   const [subscriptionOffers, setSubscriptionOffers] = useState<{ [sku: string]: string }>({});
   const [loading, setLoading] = useState(false);
 
-  const itemSkus = ["hde.basic.199", "hde.standard.349"];
-  const subscriptionSkus = ["hdepro"];
+  const itemSkus = ["hde.basic.199", "hde.standard.349", "hdepro"];
+  const subscriptionSkus: string[] = [];
 
   useEffect(() => {
     let purchaseUpdateSubscription: any;
@@ -95,7 +95,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         try {
           const purchases = await IAP.getAvailablePurchases();
           for (const p of purchases) {
-            if (p.productId === "hde.basic.199" || p.productId === "hde.standard.349") {
+            if (p.productId === "hde.basic.199" || p.productId === "hde.standard.349" || p.productId === "hdepro") {
               try {
                 await IAP.finishTransaction({ purchase: p, isConsumable: true });
                 console.log("Successfully consumed stuck purchase on mount:", p.productId);
@@ -139,7 +139,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
             try {
               setLoading(true);
               await handlePurchaseSuccess(purchase);
-              const isConsumable = purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349";
+              const isConsumable = purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349" || purchase.productId === "hdepro";
               await IAP.finishTransaction({ purchase, isConsumable });
             } catch (err) {
               console.error("Error finishing transaction:", err);
@@ -194,25 +194,31 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       creditsCount = 5;
     }
 
-    // Fetch user's current credits from Supabase database to increment it correctly
+    // Fetch user's current values from Supabase database to merge correctly
     let currentCredits = 0;
+    let currentTier: "free" | "basic" | "standard" | "pro" = "free";
     try {
       const { data, error } = await supabase
         .from("profiles")
-        .select("credits")
+        .select("credits, plan_tier")
         .eq("id", user.id)
         .maybeSingle();
       if (!error && data) {
         currentCredits = data.credits || 0;
+        currentTier = (data.plan_tier as any) || "free";
       } else {
         currentCredits = credits || 0;
+        currentTier = planTier || "free";
       }
     } catch (dbErr) {
       console.warn("Failed to fetch database credits, falling back to context:", dbErr);
       currentCredits = credits || 0;
+      currentTier = planTier || "free";
     }
 
-    const finalCredits = tierName === "pro" ? 100 : currentCredits + creditsCount;
+    const tierHierarchy = { free: 0, basic: 1, standard: 2, pro: 3 };
+    const finalTier = tierHierarchy[tierName] > tierHierarchy[currentTier] ? tierName : currentTier;
+    const finalCredits = currentCredits + creditsCount;
 
     try {
       const { error } = await supabase
@@ -220,7 +226,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         .upsert({
           id: user.id,
           has_paid: true,
-          plan_tier: tierName,
+          plan_tier: finalTier,
           credits: finalCredits,
           updated_at: new Date().toISOString(),
         });
@@ -231,7 +237,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       
       let successMessage = "";
       if (tierName === "pro") {
-        successMessage = "Pro account activated successfully!";
+        successMessage = "Pro account activated successfully with 100 credits!";
       } else if (tierName === "standard") {
         successMessage = "Credited 10 Projects successfully!";
       } else if (tierName === "basic") {
@@ -311,7 +317,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         for (const purchase of purchases) {
           if (purchase.productId === "hdepro") {
             restoredTier = "pro";
-            restoredCreditsToAdd = 100;
+            restoredCreditsToAdd += 100;
           } else if (purchase.productId === "hde.standard.349") {
             if (restoredTier !== "pro") {
               restoredTier = "standard";
@@ -326,32 +332,38 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         }
 
         if (restoredTier) {
-          // Fetch current database credits to increment them correctly
+          // Fetch current database credits and tier to merge correctly
           let currentCredits = 0;
+          let currentTier: "free" | "basic" | "standard" | "pro" = "free";
           try {
             const { data, error } = await supabase
               .from("profiles")
-              .select("credits")
+              .select("credits, plan_tier")
               .eq("id", user.id)
               .maybeSingle();
             if (!error && data) {
               currentCredits = data.credits || 0;
+              currentTier = (data.plan_tier as any) || "free";
             } else {
               currentCredits = credits || 0;
+              currentTier = planTier || "free";
             }
           } catch (dbErr) {
             console.warn("Restore: Failed to fetch database credits, falling back to context:", dbErr);
             currentCredits = credits || 0;
+            currentTier = planTier || "free";
           }
 
-          const finalCredits = restoredTier === "pro" ? 100 : currentCredits + restoredCreditsToAdd;
+          const tierHierarchy = { free: 0, basic: 1, standard: 2, pro: 3 };
+          const finalTier = tierHierarchy[restoredTier] > tierHierarchy[currentTier] ? restoredTier : currentTier;
+          const finalCredits = currentCredits + restoredCreditsToAdd;
 
           const { error } = await supabase
             .from("profiles")
             .upsert({
               id: user.id,
               has_paid: true,
-              plan_tier: restoredTier,
+              plan_tier: finalTier,
               credits: finalCredits,
               updated_at: new Date().toISOString(),
             });
@@ -360,7 +372,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
 
           // Consume the restored consumable purchases so they are finished in Google Play
           for (const purchase of purchases) {
-            if (purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349") {
+            if (purchase.productId === "hde.basic.199" || purchase.productId === "hde.standard.349" || purchase.productId === "hdepro") {
               try {
                 await IAP.finishTransaction({ purchase, isConsumable: true });
                 console.log(`Consumed stuck purchase during restore: ${purchase.productId}`);
@@ -414,8 +426,13 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
           {plans.map((plan, idx) => {
             const isActive = planTier === plan.name.toLowerCase();
             return (
-              <View key={idx} style={[styles.planCard, plan.badge ? styles.planCardActive : null, isTablet && styles.planCardTablet]}>
-                {plan.badge && (
+              <View key={idx} style={[styles.planCard, (plan.badge || isActive) ? styles.planCardActive : null, isTablet && styles.planCardTablet]}>
+                {isActive && (
+                  <View style={[styles.badgeContainer, { backgroundColor: "#10B981" }]}>
+                    <Text style={styles.badgeText}>Active Tier</Text>
+                  </View>
+                )}
+                {!isActive && plan.badge && (
                   <View style={styles.badgeContainer}>
                     <Text style={styles.badgeText}>{plan.badge}</Text>
                   </View>
@@ -426,7 +443,9 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
                     <Text style={styles.planName}>{plan.name}</Text>
                     <View style={styles.priceRow}>
                       <Text style={styles.planPrice}>₹{plan.price}</Text>
-                      <Text style={styles.planDuration}>/{plan.type}</Text>
+                      <Text style={styles.planDuration}>
+                        {plan.type === "once" ? " once" : `/${plan.type}`}
+                      </Text>
                       <Text style={styles.originalPrice}>₹{plan.originalPrice}</Text>
                     </View>
                   </View>
@@ -452,17 +471,15 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
                   style={[
                     styles.btnBuyPlan,
                     { backgroundColor: plan.color },
-                    isActive && styles.btnBuyPlanDisabled
+                    purchasingId !== null && styles.btnBuyPlanDisabled
                   ]}
-                  onPress={() => handleBuyPlan(plan.id, plan.type === "once" ? "once" : "sub")}
-                  disabled={isActive || purchasingId !== null}
+                  onPress={() => handleBuyPlan(plan.id, "once")}
+                  disabled={purchasingId !== null}
                 >
                   <Text style={styles.btnBuyPlanText}>
-                    {isActive 
-                      ? "Current Plan" 
-                      : purchasingId === plan.id 
-                        ? "Processing..." 
-                        : `Buy ${plan.name}`}
+                    {purchasingId === plan.id 
+                      ? "Processing..." 
+                      : `Buy ${plan.name}`}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -476,7 +493,7 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
         </TouchableOpacity>
 
         <Text style={styles.footerNote}>
-          Payments are processed securely via Google Play. Subscription plans will bill monthly and can be managed or canceled anytime in your Play Store Subscription settings.
+          Payments are processed securely via Google Play. Standard and Pro one-time purchase plans add credits to your account and do not recur.
         </Text>
       </ScrollView>
 
