@@ -236,7 +236,10 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
       Alert.alert("Payment Successful", successMessage);
     } catch (err: any) {
       console.error("Failed to update database profile:", err);
-      Alert.alert("Update Error", "Payment was successful, but we failed to sync with the database. Please try using 'Restore Purchases'.");
+      Alert.alert(
+        "Update Error",
+        `Payment was successful, but we failed to sync with the database: ${err.message || err.details || JSON.stringify(err)}\n\nPlease try using 'Restore Purchases'.`
+      );
     }
   };
 

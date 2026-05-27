@@ -9,7 +9,11 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "eas-build-pre-install": "echo SUPABASE_URL=$SUPABASE_URL >> .env && echo SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY >> .env",
-    "build:android": "node scripts/increment-version.js && npx expo prebuild --platform android --no-install && cd android && .\\gradlew.bat bundleRelease"
+    "build:android": "node scripts/increment-version.js && npx expo prebuild --platform android --no-install && cd android && .\\gradlew.bat bundleRelease",
+    "inspect-db": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\inspect-columns.js",
+    "test-tables": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-tables.js",
+    "test-upsert": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-upsert.js",
+    "test-auth-and-rls": "node C:\\Users\\Thyagaraja\\.gemini\\antigravity-cli\\brain\\16fcd615-a76e-4ff1-8f7f-940603ebc262\\scratch\\test-auth-and-rls.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
