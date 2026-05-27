@@ -212,13 +212,13 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
     try {
       const { error } = await supabase
         .from("profiles")
-        .update({
+        .upsert({
+          id: user.id,
           has_paid: true,
           plan_tier: tierName,
           credits: finalCredits,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
+        });
 
       if (error) throw error;
 
@@ -341,13 +341,13 @@ export const UpgradeScreen: React.FC<{ navigation: any }> = ({ navigation }) => 
 
           const { error } = await supabase
             .from("profiles")
-            .update({
+            .upsert({
+              id: user.id,
               has_paid: true,
               plan_tier: restoredTier,
               credits: finalCredits,
               updated_at: new Date().toISOString(),
-            })
-            .eq("id", user.id);
+            });
 
           if (error) throw error;
 

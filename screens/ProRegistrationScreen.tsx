@@ -105,7 +105,7 @@ export const ProRegistrationScreen: React.FC<{ navigation: any }> = ({ navigatio
       Alert.alert("Session Expired", "Please log in again.");
       return;
     }
-    if (!formData.name || !formData.email || !formData.city || !formData.contact_number) {
+    if (!formData.name || !formData.city || !formData.contact_number) {
       Alert.alert("Missing Fields", "Please fill in all required fields (*).");
       return;
     }
@@ -219,7 +219,7 @@ export const ProRegistrationScreen: React.FC<{ navigation: any }> = ({ navigatio
         </View>
 
         <View style={styles.inputContainer}>
-          <Text style={styles.label}>Business Email *</Text>
+          <Text style={styles.label}>Business Email (Optional)</Text>
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}

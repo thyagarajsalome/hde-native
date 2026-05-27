@@ -57,7 +57,7 @@ const HousePlanCard = React.memo(({ item, isLocked, onPress }: HousePlanCardProp
         {isLocked && (
           <View style={styles.proBadge}>
             <Ionicons name="lock-closed" size={10} color="#FFFFFF" style={styles.iconMarginRight2} />
-            <Text style={styles.proBadgeText}>PRO</Text>
+            <Text style={styles.proBadgeText}>PREMIUM</Text>
           </View>
         )}
       </View>
@@ -313,7 +313,7 @@ export const PlanGalleryScreen: React.FC<{ navigation: any }> = ({ navigation })
                     }}
                   >
                     <Ionicons name="lock-closed" size={18} color="#1E293B" style={styles.iconMarginRight6} />
-                    <Text style={styles.btnPrimaryLockText}>Unlock Download with PRO</Text>
+                    <Text style={styles.btnPrimaryLockText}>Unlock Download with Premium</Text>
                   </TouchableOpacity>
                 ) : (
                   <TouchableOpacity

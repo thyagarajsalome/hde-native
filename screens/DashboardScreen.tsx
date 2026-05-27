@@ -149,13 +149,13 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
     try {
       const { error } = await supabase
         .from('profiles')
-        .update({ 
+        .upsert({ 
+          id: user.id,
           has_paid: paid, 
           plan_tier: tier, 
           credits: testCredits,
           updated_at: new Date().toISOString() 
-        })
-        .eq('id', user.id);
+        });
 
       if (error) throw error;
       await refreshProfile();
