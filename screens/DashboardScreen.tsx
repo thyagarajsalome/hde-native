@@ -194,7 +194,7 @@ export const DashboardScreen: React.FC<DashboardScreenProps> = ({ navigation }) 
   };
 
   const handleProjectPress = (project: Project) => {
-    const screenParams = { projectData: project.data, projectName: project.name };
+    const screenParams = { projectData: project.data, projectName: project.name, projectId: project.id };
     if (project.type === "construction") {
       navigation.navigate("ConstructionCalculator", screenParams);
     } else if (project.type === "materials") {

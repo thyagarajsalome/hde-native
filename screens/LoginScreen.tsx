@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   StyleSheet,
   Text,
@@ -19,6 +19,7 @@ import { RootStackParamList } from "../navigation/RootNavigator";
 import * as WebBrowser from "expo-web-browser";
 import * as Linking from "expo-linking";
 import Svg, { Path } from "react-native-svg";
+import { GoogleSignin } from "@react-native-google-signin/google-signin";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -58,81 +59,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
+  useEffect(() => {
+    const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || "";
+    if (webClientId) {
+      GoogleSignin.configure({
+        webClientId: webClientId,
+        offlineAccess: true,
+      });
+    }
+  }, []);
+
   const handleGoogleSignIn = async () => {
     setGoogleLoading(true);
     try {
-      const redirectUrl = Linking.createURL("auth/callback");
-      const { data, error } = await supabase.auth.signInWithOAuth({
+      await GoogleSignin.hasPlayServices();
+      const userInfo = await GoogleSignin.signIn();
+      const idToken = userInfo.data?.idToken || (userInfo as any).idToken;
+
+      if (!idToken) {
+        throw new Error("No ID Token returned from Google Sign-In.");
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
         provider: "google",
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: true,
-        },
+        token: idToken,
       });
 
       if (error) throw error;
-      if (!data?.url) {
-        throw new Error("No authorization URL returned from Supabase.");
-      }
 
-      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectUrl);
-
-      if (res.type === "success" && res.url) {
-        // Robust parser helper
-        const getUrlParams = (url: string) => {
-          const params: Record<string, string> = {};
-          
-          // Parse hash values (e.g. #access_token=xxx&...)
-          const hashSplit = url.split("#");
-          if (hashSplit.length > 1) {
-            hashSplit[1].split("&").forEach((part) => {
-              const pair = part.split("=");
-              if (pair.length >= 2) {
-                params[pair[0]] = decodeURIComponent(pair[1]);
-              }
-            });
-          }
-          
-          // Parse query parameters (e.g. ?access_token=xxx&...)
-          const querySplit = url.split("?");
-          if (querySplit.length > 1) {
-            const queryPart = querySplit[1].split("#")[0];
-            queryPart.split("&").forEach((part) => {
-              const pair = part.split("=");
-              if (pair.length >= 2) {
-                params[pair[0]] = decodeURIComponent(pair[1]);
-              }
-            });
-          }
-          return params;
-        };
-
-        const params = getUrlParams(res.url);
-        const accessToken = params["access_token"];
-        const refreshToken = params["refresh_token"];
-        const code = params["code"];
-
-        if (accessToken && refreshToken) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-          });
-          if (sessionError) throw sessionError;
-          navigation.navigate("MainTabs");
-          return;
-        } else if (code) {
-          const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-          navigation.navigate("MainTabs");
-          return;
-        } else {
-          // If no token was found, check if there is an error in the redirect URL parameters
-          const errorMsg = params["error_description"] || params["error"];
-          if (errorMsg) {
-            throw new Error(errorMsg.replace(/\+/g, " "));
-          }
-          throw new Error("No authentication tokens or authorization code returned.");
-        }
+      if (data?.session) {
+        navigation.navigate("MainTabs");
       }
     } catch (error: any) {
       console.error("Google Sign-In error:", error);

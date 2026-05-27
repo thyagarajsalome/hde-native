@@ -195,10 +195,11 @@ function computeBOQ(
 }
 
 export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }> = ({ route, navigation }) => {
-  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits } = useUser();
+  const { hasPaid, markup = 0, user, refreshProfile, planTier, credits, role } = useUser();
   const insets = useSafeAreaInsets();
   const editProject = route.params?.projectData;
   const editName = route.params?.projectName;
+  const projectId = route.params?.projectId;
 
   // Wizard state
   const [wizardStep, setWizardStep] = useState(1);
@@ -276,7 +277,7 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
       return;
     }
 
-    if (planTier !== "pro" && credits <= 0) {
+    if (!projectId && planTier !== "pro" && credits <= 0) {
       Alert.alert("Upgrade Required", "You have 0 credits remaining. Please upgrade your plan.", [
         { text: "Cancel" },
         { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
@@ -299,33 +300,49 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
 
             setIsSaving(true);
             try {
-              const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
-                user_uuid: user.id,
-              });
+              let saveError;
+              const payloadData = {
+                area,
+                floors,
+                quality,
+                wallType,
+                totalCost: totalCost,
+              };
 
-              if (rpcError) {
-                if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
-                  Alert.alert("Error", rpcError.message);
-                  return;
+              if (projectId) {
+                const { error } = await supabase
+                  .from("projects")
+                  .update({
+                    name: name.trim(),
+                    data: payloadData,
+                    date: new Date().toISOString(),
+                  })
+                  .eq("id", projectId);
+                saveError = error;
+              } else {
+                const { error: rpcError } = await supabase.rpc("deduct_project_credit", {
+                  user_uuid: user.id,
+                });
+
+                if (rpcError) {
+                  if (rpcError.message.includes("limit") || rpcError.message.includes("credits")) {
+                    Alert.alert("Upgrade Required", rpcError.message);
+                    return;
+                  }
+                  throw rpcError;
                 }
-                throw rpcError;
+
+                const { error } = await supabase.from("projects").insert({
+                  user_id: user.id,
+                  name: name.trim(),
+                  type: "materials",
+                  data: payloadData,
+                  date: new Date().toISOString(),
+                });
+                saveError = error;
               }
 
-              const { error: insertError } = await supabase.from("projects").insert({
-                user_id: user.id,
-                name: name.trim(),
-                type: "materials",
-                data: {
-                  area,
-                  floors,
-                  quality,
-                  wallType,
-                  totalCost: totalCost,
-                },
-                date: new Date().toISOString(),
-              });
-
-              if (insertError) throw insertError;
+              if (saveError) throw saveError;
 
               await refreshProfile();
 
@@ -348,6 +365,18 @@ export const MaterialCalculatorScreen: React.FC<{ route: any; navigation: any }>
   };
 
   const handleExportPDF = async () => {
+    if (!hasPaid && role !== "admin") {
+      Alert.alert(
+        "Upgrade Required",
+        "Exporting PDF reports is a premium feature. Please upgrade to unlock.",
+        [
+          { text: "Cancel" },
+          { text: "Upgrade", onPress: () => navigation.navigate("Upgrade") },
+        ]
+      );
+      return;
+    }
+
     setIsExporting(true);
     try {
       const formattedDate = new Date().toLocaleDateString("en-IN");
