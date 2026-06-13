@@ -34,6 +34,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const profilePromiseRef = useRef<Promise<void> | null>(null);
   const fetchedUserIdRef = useRef<string | null>(null);
+  const lastFetchTimeRef = useRef<number>(0);
 
   const fetchProfile = (userId: string): Promise<void> => {
     if (fetchedUserIdRef.current === userId) {
@@ -64,6 +65,7 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let finalCredits = data?.credits || 0;
         setCredits(finalCredits);
         fetchedUserIdRef.current = userId;
+        lastFetchTimeRef.current = Date.now();
       } catch (err) {
         console.error("Unexpected error fetching profile:", err);
         setHasPaid(false);
@@ -133,8 +135,11 @@ export const UserProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const handleManualRefresh = async () => {
     if (user) {
-      fetchedUserIdRef.current = null;
-      await fetchProfile(user.id);
+      const now = Date.now();
+      if (now - lastFetchTimeRef.current > 5000) {
+        fetchedUserIdRef.current = null;
+        await fetchProfile(user.id);
+      }
     }
   };
 

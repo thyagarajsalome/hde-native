@@ -17,7 +17,7 @@ import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../services/supabaseClient";
 import { useUser } from "../context/UserContext";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useFocusEffect } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
