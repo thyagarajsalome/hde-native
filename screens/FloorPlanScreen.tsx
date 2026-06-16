@@ -574,10 +574,10 @@ export default function FloorPlanScreen({ navigation }: any) {
   const getCompilationWalls = (): CustomWall[] => {
     const list: CustomWall[] = [...customWalls];
     rooms.forEach(r => {
-      list.push({ id: `${r.id}_top`, x1: r.x, y1: r.y, x2: r.x + r.width, y2: r.y, thickness: 0.5 });
-      list.push({ id: `${r.id}_bot`, x1: r.x, y1: r.y + r.height, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.5 });
-      list.push({ id: `${r.id}_lft`, x1: r.x, y1: r.y, x2: r.x, y2: r.y + r.height, thickness: 0.5 });
-      list.push({ id: `${r.id}_rgt`, x1: r.x + r.width, y1: r.y, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.5 });
+      list.push({ id: `${r.id}_top`, x1: r.x, y1: r.y, x2: r.x + r.width, y2: r.y, thickness: 0.625 });
+      list.push({ id: `${r.id}_bot`, x1: r.x, y1: r.y + r.height, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.625 });
+      list.push({ id: `${r.id}_lft`, x1: r.x, y1: r.y, x2: r.x, y2: r.y + r.height, thickness: 0.625 });
+      list.push({ id: `${r.id}_rgt`, x1: r.x + r.width, y1: r.y, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.625 });
     });
     return list;
   };
@@ -910,7 +910,7 @@ export default function FloorPlanScreen({ navigation }: any) {
           y1: drawingWall.y1,
           x2: drawingWall.x2,
           y2: drawingWall.y2,
-          thickness: 0.5, // 6 inches standard thickness
+          thickness: 0.625, // 7.5 inches standard thickness (matches room walls)
         };
         setCustomWalls([...customWalls, newWall]);
         setSelectedItem({ type: "wall", id });
@@ -1350,7 +1350,133 @@ export default function FloorPlanScreen({ navigation }: any) {
       }
     });
 
-    // 2. Extrude walls (9' height Ground Floor default)
+    // Helper function to render a 3D solid wall block with thickness
+    const renderWallBlock3D = (x1: number, y1: number, x2: number, y2: number, zMin: number, zMax: number, thickness: number, key: string) => {
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len < 0.05) return;
+
+      const ux = dx / len;
+      const uy = dy / len;
+      // Perpendicular vector
+      const nx = -uy;
+      const ny = ux;
+
+      const halfT = thickness / 2;
+
+      // 4 ground footprint coordinates
+      const c1x = x1 - halfT * nx, c1y = y1 - halfT * ny;
+      const c2x = x2 - halfT * nx, c2y = y2 - halfT * ny;
+      const c3x = x2 + halfT * nx, c3y = y2 + halfT * ny;
+      const c4x = x1 + halfT * nx, c4y = y1 + halfT * ny;
+
+      // Project 8 vertices
+      const pC1 = projectPoint3D(c1x, c1y, zMin);
+      const pC2 = projectPoint3D(c2x, c2y, zMin);
+      const pC3 = projectPoint3D(c3x, c3y, zMin);
+      const pC4 = projectPoint3D(c4x, c4y, zMin);
+      const pT1 = projectPoint3D(c1x, c1y, zMax);
+      const pT2 = projectPoint3D(c2x, c2y, zMax);
+      const pT3 = projectPoint3D(c3x, c3y, zMax);
+      const pT4 = projectPoint3D(c4x, c4y, zMax);
+
+      // Shading based on wall angle
+      const angle = Math.atan2(ny, nx);
+      const intensitySide1 = Math.floor(150 + Math.sin(angle) * 30);
+      const intensitySide2 = Math.floor(150 - Math.sin(angle) * 30);
+      const intensityTop = 200;
+
+      const strokeColor = "#3D4854";
+      const strokeW = 0.5;
+
+      // Side 1 (Inner Face)
+      if (pC1.x !== -9999 && pC2.x !== -9999 && pT2.x !== -9999 && pT1.x !== -9999) {
+        const d = (pC1.depth + pC2.depth + pT2.depth + pT1.depth) / 4;
+        renderQueue.push({
+          depth: d,
+          key: `${key}_side1`,
+          element: (
+            <Path
+              d={`M ${pC1.x} ${pC1.y} L ${pC2.x} ${pC2.y} L ${pT2.x} ${pT2.y} L ${pT1.x} ${pT1.y} Z`}
+              fill={`rgb(${intensitySide1}, ${intensitySide1 + 3}, ${intensitySide1 + 8})`}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+            />
+          ),
+        });
+      }
+
+      // Side 2 (Outer Face)
+      if (pC4.x !== -9999 && pC3.x !== -9999 && pT3.x !== -9999 && pT4.x !== -9999) {
+        const d = (pC4.depth + pC3.depth + pT3.depth + pT4.depth) / 4;
+        renderQueue.push({
+          depth: d,
+          key: `${key}_side2`,
+          element: (
+            <Path
+              d={`M ${pC4.x} ${pC4.y} L ${pC3.x} ${pC3.y} L ${pT3.x} ${pT3.y} L ${pT4.x} ${pT4.y} Z`}
+              fill={`rgb(${intensitySide2}, ${intensitySide2 + 3}, ${intensitySide2 + 8})`}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+            />
+          ),
+        });
+      }
+
+      // Top Face
+      if (pT1.x !== -9999 && pT2.x !== -9999 && pT3.x !== -9999 && pT4.x !== -9999) {
+        const d = (pT1.depth + pT2.depth + pT3.depth + pT4.depth) / 4;
+        renderQueue.push({
+          depth: d,
+          key: `${key}_top`,
+          element: (
+            <Path
+              d={`M ${pT1.x} ${pT1.y} L ${pT2.x} ${pT2.y} L ${pT3.x} ${pT3.y} L ${pT4.x} ${pT4.y} Z`}
+              fill={`rgb(${intensityTop}, ${intensityTop + 5}, ${intensityTop + 10})`}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+            />
+          ),
+        });
+      }
+
+      // End Cap 1 (Left)
+      if (pC1.x !== -9999 && pC4.x !== -9999 && pT4.x !== -9999 && pT1.x !== -9999) {
+        const d = (pC1.depth + pC4.depth + pT4.depth + pT1.depth) / 4;
+        renderQueue.push({
+          depth: d,
+          key: `${key}_cap1`,
+          element: (
+            <Path
+              d={`M ${pC1.x} ${pC1.y} L ${pC4.x} ${pC4.y} L ${pT4.x} ${pT4.y} L ${pT1.x} ${pT1.y} Z`}
+              fill={`rgb(140, 142, 145)`}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+            />
+          ),
+        });
+      }
+
+      // End Cap 2 (Right)
+      if (pC2.x !== -9999 && pC3.x !== -9999 && pT3.x !== -9999 && pT2.x !== -9999) {
+        const d = (pC2.depth + pC3.depth + pT3.depth + pT2.depth) / 4;
+        renderQueue.push({
+          depth: d,
+          key: `${key}_cap2`,
+          element: (
+            <Path
+              d={`M ${pC2.x} ${pC2.y} L ${pC3.x} ${pC3.y} L ${pT3.x} ${pT3.y} L ${pT2.x} ${pT2.y} Z`}
+              fill={`rgb(140, 142, 145)`}
+              stroke={strokeColor}
+              strokeWidth={strokeW}
+            />
+          ),
+        });
+      }
+    };
+
+    // 2. Extrude walls (9' height Ground Floor default) with opening cutouts
     const compiledWalls = getCompilationWalls();
     compiledWalls.forEach((w, index) => {
       const wx1 = w.x1 / 4;
@@ -1358,32 +1484,92 @@ export default function FloorPlanScreen({ navigation }: any) {
       const wx2 = w.x2 / 4;
       const wy2 = w.y2 / 4;
       const wallH = 9.0; // Default height 9 ft
+      const thickness = w.thickness || 0.625;
 
-      const pBA = projectPoint3D(wx1, wy1, 0);
-      const pBB = projectPoint3D(wx2, wy2, 0);
-      const pTA = projectPoint3D(wx1, wy1, wallH);
-      const pTB = projectPoint3D(wx2, wy2, wallH);
+      const dx = wx2 - wx1;
+      const dy = wy2 - wy1;
+      const wallLength = Math.sqrt(dx * dx + dy * dy);
 
-      if (pBA.x !== -9999 && pBB.x !== -9999 && pTA.x !== -9999 && pTB.x !== -9999) {
-        const avgDepth = (pBA.depth + pBB.depth + pTA.depth + pTB.depth) / 4;
-        
-        // AutoCAD diffuse shading calculations based on wall segment angle
-        const angle = Math.atan2(wy2 - wy1, wx2 - wx1);
-        const intensity = Math.floor(140 + Math.sin(angle) * 35);
-        const color = `rgb(${intensity}, ${intensity + 5}, ${intensity + 12})`;
+      if (wallLength < 0.1) return;
 
-        renderQueue.push({
-          depth: avgDepth,
-          key: `wall_${w.id}_${index}`,
-          element: (
-            <Path
-              d={`M ${pBA.x} ${pBA.y} L ${pBB.x} ${pBB.y} L ${pTB.x} ${pTB.y} L ${pTA.x} ${pTA.y} Z`}
-              fill={color}
-              stroke="#5E6773"
-              strokeWidth={0.8}
-            />
-          ),
-        });
+      // Find openings snapped to this wall segment
+      interface WallOpening {
+        type: "door" | "window";
+        tStart: number; // t parameter along the wall (0 to 1)
+        tEnd: number;
+        widthFt: number;
+      }
+
+      const wallOpenings: WallOpening[] = [];
+
+      openings.forEach((op) => {
+        const opX = op.x / 4;
+        const opY = op.y / 4;
+        const opW = op.width / 4;
+
+        // Project opening on the wall segment
+        const l2 = dx * dx + dy * dy;
+        const t = ((opX - wx1) * dx + (opY - wy1) * dy) / l2;
+
+        if (t >= -0.05 && t <= 1.05) {
+          // Calculate distance from opening center to wall line
+          const projX = wx1 + t * dx;
+          const projY = wy1 + t * dy;
+          const dist = Math.sqrt(Math.pow(opX - projX, 2) + Math.pow(opY - projY, 2));
+
+          if (dist < 1.0) { // Snapped within 1 ft of the wall
+            const halfWPercent = (opW / 2) / wallLength;
+            wallOpenings.push({
+              type: op.type,
+              tStart: Math.max(0, t - halfWPercent),
+              tEnd: Math.min(1, t + halfWPercent),
+              widthFt: opW
+            });
+          }
+        }
+      });
+
+      // Sort openings by tStart
+      wallOpenings.sort((a, b) => a.tStart - b.tStart);
+
+      // Render wall sub-segments
+      let currentT = 0;
+
+      wallOpenings.forEach((open, opIdx) => {
+        // 1. Draw solid wall segment before the opening
+        if (open.tStart > currentT) {
+          const sx1 = wx1 + currentT * dx;
+          const sy1 = wy1 + currentT * dy;
+          const sx2 = wx1 + open.tStart * dx;
+          const sy2 = wy1 + open.tStart * dy;
+          renderWallBlock3D(sx1, sy1, sx2, sy2, 0, wallH, thickness, `wall_${w.id}_seg_${opIdx}`);
+        }
+
+        // 2. Draw walls above/below the opening
+        const ox1 = wx1 + open.tStart * dx;
+        const oy1 = wy1 + open.tStart * dy;
+        const ox2 = wx1 + open.tEnd * dx;
+        const oy2 = wy1 + open.tEnd * dy;
+
+        if (open.type === "door") {
+          // Door: only draw header wall (from door top 7.0 ft to wall top 9.0 ft)
+          renderWallBlock3D(ox1, oy1, ox2, oy2, 7.0, wallH, thickness, `wall_${w.id}_door_header_${opIdx}`);
+        } else if (open.type === "window") {
+          // Window: draw sill wall (0 to 3.0 ft) and header wall (6.5 ft to 9.0 ft)
+          renderWallBlock3D(ox1, oy1, ox2, oy2, 0, 3.0, thickness, `wall_${w.id}_win_sill_${opIdx}`);
+          renderWallBlock3D(ox1, oy1, ox2, oy2, 6.5, wallH, thickness, `wall_${w.id}_win_header_${opIdx}`);
+        }
+
+        currentT = open.tEnd;
+      });
+
+      // 3. Draw final solid wall segment after the last opening
+      if (currentT < 1.0) {
+        const sx1 = wx1 + currentT * dx;
+        const sy1 = wy1 + currentT * dy;
+        const sx2 = wx2;
+        const sy2 = wy2;
+        renderWallBlock3D(sx1, sy1, sx2, sy2, 0, wallH, thickness, `wall_${w.id}_seg_last`);
       }
     });
 
