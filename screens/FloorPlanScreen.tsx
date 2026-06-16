@@ -148,6 +148,8 @@ export default function FloorPlanScreen({ navigation }: any) {
   // Touch Tracking references
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchStartY, setTouchStartY] = useState(0);
+  const lastTouchX = useRef(0);
+  const lastTouchY = useRef(0);
   const [pinchDist, setPinchDist] = useState(0);
 
   // Free hand wall drawing coordinates
@@ -594,6 +596,8 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     setTouchStartX(locationX);
     setTouchStartY(locationY);
+    lastTouchX.current = locationX;
+    lastTouchY.current = locationY;
 
     if (viewMode !== "2d") return; // 3D handles gestures on drag move only
 
@@ -725,16 +729,20 @@ export default function FloorPlanScreen({ navigation }: any) {
       return;
     }
 
-    const dx = locationX - touchStartX;
-    const dy = locationY - touchStartY;
+    // Incremental drag movement tracking (synchronous via refs to prevent stale closure state lag)
+    const incDx = locationX - lastTouchX.current;
+    const incDy = locationY - lastTouchY.current;
+    lastTouchX.current = locationX;
+    lastTouchY.current = locationY;
 
     // 2. 3D orbit and walkthrough camera controllers
     if (viewMode === "3d") {
       // Orbit drag rotation
-      setOrbitYaw(prev => (prev + dx * 0.4) % 360);
-      setOrbitPitch(prev => Math.max(10, Math.min(85, prev - dy * 0.4)));
-      setTouchStartX(locationX);
-      setTouchStartY(locationY);
+      setOrbitYaw(prev => {
+        const next = (prev + incDx * 0.5) % 360;
+        return next < 0 ? next + 360 : next;
+      });
+      setOrbitPitch(prev => Math.max(10, Math.min(85, prev - incDy * 0.5)));
       return;
     }
 
@@ -746,24 +754,28 @@ export default function FloorPlanScreen({ navigation }: any) {
         const moveSpeed = 0.08;
         const rad = (walkYaw * Math.PI) / 180;
         
-        // dy controls forward/backward (Z direction in camera coords)
-        const forwardX = moveSpeed * dy * Math.sin(rad);
-        const forwardY = -moveSpeed * dy * Math.cos(rad);
-        // dx controls left/right strafe
-        const strafeX = moveSpeed * dx * Math.cos(rad);
-        const strafeY = moveSpeed * dx * Math.sin(rad);
+        // incDy controls forward/backward (Z direction in camera coords)
+        const forwardX = moveSpeed * incDy * Math.sin(rad);
+        const forwardY = -moveSpeed * incDy * Math.cos(rad);
+        // incDx controls left/right strafe
+        const strafeX = moveSpeed * incDx * Math.cos(rad);
+        const strafeY = moveSpeed * incDx * Math.sin(rad);
 
         setCamX(prev => prev + forwardX + strafeX);
         setCamY(prev => prev + forwardY + strafeY);
       } else {
         // Look look-up/down yaw and pitch
-        setWalkYaw(prev => (prev + dx * 0.4) % 360);
-        setWalkPitch(prev => Math.max(-45, Math.min(45, prev - dy * 0.4)));
+        setWalkYaw(prev => {
+          const next = (prev + incDx * 0.5) % 360;
+          return next < 0 ? next + 360 : next;
+        });
+        setWalkPitch(prev => Math.max(-45, Math.min(45, prev - incDy * 0.5)));
       }
-      setTouchStartX(locationX);
-      setTouchStartY(locationY);
       return;
     }
+
+    const dx = locationX - touchStartX;
+    const dy = locationY - touchStartY;
 
     // 2D panning logic
     if (viewMode === "2d" && isPanning2D) {
