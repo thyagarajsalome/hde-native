@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
   Text,
@@ -13,7 +13,6 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import Svg, {
   Rect,
   Path,
@@ -24,54 +23,64 @@ import Svg, {
   Defs,
   Pattern,
 } from "react-native-svg";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
+import Slider from "@react-native-community/slider";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-// Canvas constants
-const CANVAS_SIZE = 400;
-const GRID_SIZE = 20;
-
-// Conversion: 4 canvas units = 1 foot (1 canvas unit = 3 inches)
+// Canvas conversions: 4 canvas units = 1 foot (1 canvas unit = 3 inches)
 const PIXELS_PER_FOOT = 4;
 
 const COLORS = {
-  bg: "#F8FAFC",
-  navy: "#1E293B",
-  navyLight: "#334155",
-  gold: "#D9A443",
-  emerald: "#10B981",
-  slate: "#64748B",
-  slateLight: "#E2E8F0",
+  cadBg: "#16191C",        // AutoCAD Dark Background
+  cadGrid: "#22272B",      // AutoCAD Grid Lines
+  cadWall: "#E2E8F0",      // Wall Color
+  cadWallBorder: "#475569",// Wall Outline
+  cadSelect: "#FF9F1C",    // AutoCAD Gold Selection
+  cadDimension: "#00F5D4", // Neon Cyan Dimensioning
+  cadDoor: "#D9A443",      // Door Swing Amber
+  cadWindow: "#3B82F6",    // Window Blue
   white: "#FFFFFF",
-  accent: "#3B82F6",
+  slate: "#64748B",
+  slateLight: "#334155",
+  danger: "#EF4444",
 };
 
-// Preset room templates for quick drop
-const ROOM_PRESETS = [
-  { label: "Master Bed", w: 56, h: 48, color: "#D1FAE5", defaultLabel: "Master Bed" }, // 14x12 ft
-  { label: "Bedroom", w: 48, h: 40, color: "#E0F2FE", defaultLabel: "Bedroom" },    // 12x10 ft
-  { label: "Living", w: 64, h: 56, color: "#F0FDF4", defaultLabel: "Living Room" }, // 16x14 ft
-  { label: "Kitchen", w: 40, h: 32, color: "#FEF3C7", defaultLabel: "Kitchen" },     // 10x8 ft
-  { label: "Bathroom", w: 32, h: 24, color: "#FEE2E2", defaultLabel: "Bathroom" },    // 8x6 ft
-  { label: "Balcony", w: 40, h: 16, color: "#FAF5FF", defaultLabel: "Balcony" },     // 10x4 ft
+// Preset room naming chips
+const ROOM_NAME_PRESETS = [
+  "Master Bed",
+  "Bedroom",
+  "Living Room",
+  "Kitchen",
+  "Bathroom",
+  "Dining",
+  "Balcony",
+  "Toilet",
+  "Hall",
 ];
 
 interface Room {
   id: string;
   label: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+  x: number;      // In pixels
+  y: number;      // In pixels
+  width: number;  // In pixels
+  height: number; // In pixels
   color: string;
+}
+
+interface CustomWall {
+  id: string;
+  x1: number; // In pixels
+  y1: number;
+  x2: number;
+  y2: number;
+  thickness: number; // in feet (default 0.5)
 }
 
 interface Opening {
   id: string;
   type: "door" | "window";
-  x: number;
+  x: number; // In pixels
   y: number;
   width: number;
   rotation: number; // 0, 90, 180, 270
@@ -80,7 +89,7 @@ interface Opening {
 interface Furniture {
   id: string;
   type: "bed" | "sofa" | "table" | "toilet" | "sink" | "chair";
-  x: number;
+  x: number; // In pixels
   y: number;
   width: number;
   height: number;
@@ -90,31 +99,55 @@ interface Furniture {
 export default function FloorPlanScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   
-  // View states
-  const [viewMode, setViewMode] = useState<"2d" | "3d" | "templates" | "info">("2d");
-  
-  // Floor Plan Geometries
+  // Layout screen dimensions
+  const windowWidth = Dimensions.get("window").width;
+  const viewportHeight = Dimensions.get("window").height - 240; // maximize vertical screen real estate
+
+  // View States: 2d editor, 3d orbit mode, 3d walkthrough mode, presets loader
+  const [viewMode, setViewMode] = useState<"2d" | "3d" | "walkthrough" | "presets">("2d");
+  const [tool, setTool] = useState<"select" | "draw_wall">("select");
+
+  // Geometries State
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [customWalls, setCustomWalls] = useState<CustomWall[]>([]);
   const [openings, setOpenings] = useState<Opening[]>([]);
   const [furniture, setFurniture] = useState<Furniture[]>([]);
-  const [projectName, setProjectName] = useState("My Blueprint Creator");
-  const [ratePerSqFt, setRatePerSqFt] = useState("1600");
+  const [projectName, setProjectName] = useState("My AutoCAD Layout");
 
-  // Selected item reference
+  // Selected item tracking
   const [selectedItem, setSelectedItem] = useState<{
-    type: "room" | "opening" | "furniture";
+    type: "room" | "wall" | "opening" | "furniture";
     id: string;
   } | null>(null);
 
-  // Modal input states for exact dimensions editing
-  const [dimModalVisible, setDimModalVisible] = useState(false);
-  const [inputWidthFt, setInputWidthFt] = useState("");
-  const [inputHeightFt, setInputHeightFt] = useState("");
+  // Modals
+  const [customRoomModal, setCustomRoomModal] = useState(false);
+  const [inputWidthFt, setInputWidthFt] = useState("12");
+  const [inputHeightFt, setInputHeightFt] = useState("10");
+  const [inputLabel, setInputLabel] = useState("Bedroom");
 
-  // 3D Orbit parameters
-  const [rotationAngle, setRotationAngle] = useState(45);
-  const [tiltAngle, setTiltAngle] = useState(30);
-  const [zoomScale, setZoomScale] = useState(0.65);
+  // 3D Engine Parameters (unified camera settings)
+  const [orbitYaw, setOrbitYaw] = useState(45);
+  const [orbitPitch, setOrbitPitch] = useState(35);
+  const [zoomScale, setZoomScale] = useState(0.8);
+  
+  // First-Person Walkthrough camera (in feet coordinates)
+  const [camX, setCamX] = useState(20);
+  const [camY, setCamY] = useState(20);
+  const [camZ, setCamZ] = useState(5.0); // 5 ft eye-level height
+  const [walkYaw, setWalkYaw] = useState(0); // gaze orientation angle
+  const [walkPitch, setWalkPitch] = useState(0); // gaze look up/down
+
+  // Touch Tracking references
+  const [touchStartX, setTouchStartX] = useState(0);
+  const [touchStartY, setTouchStartY] = useState(0);
+  const [pinchDist, setPinchDist] = useState(0);
+
+  // Free hand wall drawing coordinates
+  const [drawingWall, setDrawingWall] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+
+  // Snapped target indicator for CAD feedback
+  const [snapIndicator, setSnapIndicator] = useState<{ x: number; y: number } | null>(null);
 
   // Touch Drag references
   const [draggedItem, setDraggedItem] = useState<{
@@ -132,16 +165,16 @@ export default function FloorPlanScreen({ navigation }: any) {
   }, []);
 
   useEffect(() => {
-    if (rooms.length > 0 || openings.length > 0 || furniture.length > 0) {
+    if (rooms.length > 0 || customWalls.length > 0 || openings.length > 0 || furniture.length > 0) {
       saveDraft();
     }
-  }, [rooms, openings, furniture, projectName]);
+  }, [rooms, customWalls, openings, furniture, projectName]);
 
-  // Save/Load Draft locally
+  // Load/Save functions
   const saveDraft = async () => {
     try {
-      const data = JSON.stringify({ rooms, openings, furniture, projectName });
-      await AsyncStorage.setItem("hde_simple_floorplan", data);
+      const data = JSON.stringify({ rooms, customWalls, openings, furniture, projectName });
+      await AsyncStorage.setItem("hde_cad_floorplan", data);
     } catch (e) {
       console.error(e);
     }
@@ -149,10 +182,11 @@ export default function FloorPlanScreen({ navigation }: any) {
 
   const loadDraft = async () => {
     try {
-      const saved = await AsyncStorage.getItem("hde_simple_floorplan");
+      const saved = await AsyncStorage.getItem("hde_cad_floorplan");
       if (saved) {
-        const { rooms: r, openings: o, furniture: f, projectName: name } = JSON.parse(saved);
+        const { rooms: r, customWalls: cw, openings: o, furniture: f, projectName: name } = JSON.parse(saved);
         setRooms(r || []);
+        setCustomWalls(cw || []);
         setOpenings(o || []);
         setFurniture(f || []);
         if (name) setProjectName(name);
@@ -165,151 +199,113 @@ export default function FloorPlanScreen({ navigation }: any) {
   };
 
   const clearCanvas = () => {
-    Alert.alert("Reset Canvas", "Are you sure you want to clear your current design?", [
+    Alert.alert("Clear Drawing", "Are you sure you want to clear your current blueprint?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Clear All",
         style: "destructive",
         onPress: () => {
           setRooms([]);
+          setCustomWalls([]);
           setOpenings([]);
           setFurniture([]);
           setSelectedItem(null);
-          AsyncStorage.removeItem("hde_simple_floorplan");
+          AsyncStorage.removeItem("hde_cad_floorplan");
         },
       },
     ]);
   };
 
-  // Math Helper function for grid snap
-  const snap = (val: number) => Math.round(val / GRID_SIZE) * GRID_SIZE;
+  // Math Helper: Snap to Grid (1 foot = 4 pixels)
+  const snap = (val: number) => Math.round(val / 4) * 4;
 
-  // Add Room Block directly onto canvas center
-  const addRoomPreset = (preset: typeof ROOM_PRESETS[0]) => {
-    const id = "room_" + Date.now();
-    const newRoom: Room = {
-      id,
-      label: preset.defaultLabel,
-      x: snap(CANVAS_SIZE / 2 - preset.w / 2),
-      y: snap(CANVAS_SIZE / 2 - preset.h / 2),
-      width: preset.w,
-      height: preset.h,
-      color: preset.color,
-    };
-    setRooms([...rooms, newRoom]);
-    setSelectedItem({ type: "room", id });
-    setViewMode("2d");
-  };
+  // Find nearest wall end point (CAD Snap Engine)
+  const getNearestEndpoint = (x: number, y: number, excludeWallId?: string): { x: number; y: number } | null => {
+    let closestDist = 20; // 5 feet snap radius
+    let match: { x: number; y: number } | null = null;
 
-  // Add Window / Door openings on screen center
-  const addOpening = (type: "door" | "window") => {
-    const id = "op_" + Date.now();
-    const newOp: Opening = {
-      id,
-      type,
-      x: CANVAS_SIZE / 2,
-      y: CANVAS_SIZE / 2,
-      width: type === "door" ? 28 : 36,
-      rotation: 0,
-    };
-    setOpenings([...openings, newOp]);
-    setSelectedItem({ type: "opening", id });
-    setViewMode("2d");
-  };
-
-  // Add furniture items directly
-  const addFurniture = (type: "bed" | "sofa" | "table" | "toilet" | "sink" | "chair") => {
-    const id = "furn_" + Date.now();
-    const newFurn: Furniture = {
-      id,
-      type,
-      x: snap(CANVAS_SIZE / 2 - 25),
-      y: snap(CANVAS_SIZE / 2 - 25),
-      width: type === "bed" ? 60 : type === "sofa" ? 70 : 40,
-      height: type === "bed" ? 70 : type === "sofa" ? 40 : 40,
-      rotation: 0,
-    };
-    setFurniture([...furniture, newFurn]);
-    setSelectedItem({ type: "furniture", id });
-    setViewMode("2d");
-  };
-
-  // Magnetic snap opening to the nearest room wall
-  const getMagneticallySnappedOpening = (x: number, y: number, opWidth: number): { x: number; y: number; rot: number } => {
-    if (rooms.length === 0) return { x, y, rot: 0 };
-    
-    let closestDist = 999999;
-    let snapX = x;
-    let snapY = y;
-    let snapRot = 0;
-
-    rooms.forEach((room) => {
-      // Top wall segment
-      const dTop = Math.abs(y - room.y);
-      if (dTop < closestDist && x >= room.x && x <= room.x + room.width) {
-        closestDist = dTop;
-        snapX = Math.max(room.x + 8, Math.min(room.x + room.width - 8, x));
-        snapY = room.y;
-        snapRot = 0;
+    // Check custom walls
+    customWalls.forEach((w) => {
+      if (w.id === excludeWallId) return;
+      const d1 = Math.sqrt(Math.pow(x - w.x1, 2) + Math.pow(y - w.y1, 2));
+      if (d1 < closestDist) {
+        closestDist = d1;
+        match = { x: w.x1, y: w.y1 };
       }
-      // Bottom wall segment
-      const dBottom = Math.abs(y - (room.y + room.height));
-      if (dBottom < closestDist && x >= room.x && x <= room.x + room.width) {
-        closestDist = dBottom;
-        snapX = Math.max(room.x + 8, Math.min(room.x + room.width - 8, x));
-        snapY = room.y + room.height;
-        snapRot = 180;
-      }
-      // Left wall segment
-      const dLeft = Math.abs(x - room.x);
-      if (dLeft < closestDist && y >= room.y && y <= room.y + room.height) {
-        closestDist = dLeft;
-        snapX = room.x;
-        snapY = Math.max(room.y + 8, Math.min(room.y + room.height - 8, y));
-        snapRot = 270;
-      }
-      // Right wall segment
-      const dRight = Math.abs(x - (room.x + room.width));
-      if (dRight < closestDist && y >= room.y && y <= room.y + room.height) {
-        closestDist = dRight;
-        snapX = room.x + room.width;
-        snapY = Math.max(room.y + 8, Math.min(room.y + room.height - 8, y));
-        snapRot = 90;
+      const d2 = Math.sqrt(Math.pow(x - w.x2, 2) + Math.pow(y - w.y2, 2));
+      if (d2 < closestDist) {
+        closestDist = d2;
+        match = { x: w.x2, y: w.y2 };
       }
     });
 
-    // Snap to wall if distance is within magnet range (30px)
-    if (closestDist < 30) {
-      return { x: snapX, y: snapY, rot: snapRot };
-    }
-    return { x, y, rot: 0 };
+    // Check rooms corners
+    rooms.forEach((r) => {
+      const corners = [
+        { x: r.x, y: r.y },
+        { x: r.x + r.width, y: r.y },
+        { x: r.x + r.width, y: r.y + r.height },
+        { x: r.x, y: r.y + r.height },
+      ];
+      corners.forEach((c) => {
+        const d = Math.sqrt(Math.pow(x - c.x, 2) + Math.pow(y - c.y, 2));
+        if (d < closestDist) {
+          closestDist = d;
+          match = c;
+        }
+      });
+    });
+
+    return match;
   };
 
-  // Find which room and wall an opening is snapped to
-  const getOpeningParentWall = (op: Opening) => {
-    if (!op) return null;
-    for (const room of rooms) {
-      // Top wall
-      if (Math.abs(op.y - room.y) < 5 && op.x >= room.x - 5 && op.x <= room.x + room.width + 5) {
-        return { room, wall: "top" as const };
-      }
-      // Bottom wall
-      if (Math.abs(op.y - (room.y + room.height)) < 5 && op.x >= room.x - 5 && op.x <= room.x + room.width + 5) {
-        return { room, wall: "bottom" as const };
-      }
-      // Left wall
-      if (Math.abs(op.x - room.x) < 5 && op.y >= room.y - 5 && op.y <= room.y + room.height + 5) {
-        return { room, wall: "left" as const };
-      }
-      // Right wall
-      if (Math.abs(op.x - (room.x + room.width)) < 5 && op.y >= room.y - 5 && op.y <= room.y + room.height + 5) {
-        return { room, wall: "right" as const };
-      }
+  // Add room block via area inputs (e.g. 30' x 40')
+  const addCustomRoom = () => {
+    const wFt = parseFloat(inputWidthFt);
+    const hFt = parseFloat(inputHeightFt);
+
+    if (isNaN(wFt) || isNaN(hFt) || wFt <= 0 || hFt <= 0) {
+      Alert.alert("Invalid Input", "Please enter positive values for width and length.");
+      return;
     }
-    return null;
+
+    const wPixels = wFt * PIXELS_PER_FOOT;
+    const hPixels = hFt * PIXELS_PER_FOOT;
+
+    const id = "room_" + Date.now();
+    const newRoom: Room = {
+      id,
+      label: inputLabel,
+      x: snap(100),
+      y: snap(150),
+      width: wPixels,
+      height: hPixels,
+      color: "#D9A44315", // Premium gold tint slab
+    };
+
+    setRooms([...rooms, newRoom]);
+    setSelectedItem({ type: "room", id });
+    setCustomRoomModal(false);
+    setViewMode("2d");
   };
 
-  // Add opening directly centered and snapped to a specific wall of a room
+  // Quick preset rooms
+  const dropRoomPreset = (label: string, wFt: number, hFt: number) => {
+    const id = "room_" + Date.now();
+    const newRoom: Room = {
+      id,
+      label,
+      x: snap(120),
+      y: snap(140),
+      width: wFt * PIXELS_PER_FOOT,
+      height: hFt * PIXELS_PER_FOOT,
+      color: "#FFFFFF08",
+    };
+    setRooms([...rooms, newRoom]);
+    setSelectedItem({ type: "room", id });
+  };
+
+  // Add Snapped door/window to Room Walls
   const addOpeningToWall = (room: Room, wall: "top" | "bottom" | "left" | "right", type: "door" | "window") => {
     const id = "op_" + Date.now();
     let opX = room.x + room.width / 2;
@@ -345,64 +341,152 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     setOpenings([...openings, newOp]);
     setSelectedItem({ type: "opening", id });
-    setViewMode("2d");
   };
 
-  // Adjust Room width by +/- 1 foot (4 canvas units)
+  // Find parent wall snap coordinates
+  const getOpeningParentWall = (op: Opening) => {
+    if (!op) return null;
+    for (const room of rooms) {
+      // Top wall
+      if (Math.abs(op.y - room.y) < 5 && op.x >= room.x - 5 && op.x <= room.x + room.width + 5) {
+        return { room, wall: "top" as const };
+      }
+      // Bottom wall
+      if (Math.abs(op.y - (room.y + room.height)) < 5 && op.x >= room.x - 5 && op.x <= room.x + room.width + 5) {
+        return { room, wall: "bottom" as const };
+      }
+      // Left wall
+      if (Math.abs(op.x - room.x) < 5 && op.y >= room.y - 5 && op.y <= room.y + room.height + 5) {
+        return { room, wall: "left" as const };
+      }
+      // Right wall
+      if (Math.abs(op.x - (room.x + room.width)) < 5 && op.y >= room.y - 5 && op.y <= room.y + room.height + 5) {
+        return { room, wall: "right" as const };
+      }
+    }
+    return null;
+  };
+
+  // Add elements
+  const addFurniture = (type: "bed" | "sofa" | "table" | "toilet" | "sink" | "chair") => {
+    const id = "furn_" + Date.now();
+    const newFurn: Furniture = {
+      id,
+      type,
+      x: snap(150),
+      y: snap(180),
+      width: type === "bed" ? 48 : type === "sofa" ? 64 : 32,
+      height: type === "bed" ? 64 : type === "sofa" ? 32 : 32,
+      rotation: 0,
+    };
+    setFurniture([...furniture, newFurn]);
+    setSelectedItem({ type: "furniture", id });
+  };
+
   const adjustRoomWidth = (roomId: string, incrementFt: number) => {
-    setRooms(prevRooms => prevRooms.map(r => {
+    setRooms(prev => prev.map(r => {
       if (r.id === roomId) {
         const currentFt = r.width / PIXELS_PER_FOOT;
-        const newFt = Math.max(4, currentFt + incrementFt); // minimum 4 ft
+        const newFt = Math.max(4, currentFt + incrementFt);
         return { ...r, width: snap(newFt * PIXELS_PER_FOOT) };
       }
       return r;
     }));
   };
 
-  // Adjust Room height by +/- 1 foot (4 canvas units)
   const adjustRoomHeight = (roomId: string, incrementFt: number) => {
-    setRooms(prevRooms => prevRooms.map(r => {
+    setRooms(prev => prev.map(r => {
       if (r.id === roomId) {
         const currentFt = r.height / PIXELS_PER_FOOT;
-        const newFt = Math.max(4, currentFt + incrementFt); // minimum 4 ft
+        const newFt = Math.max(4, currentFt + incrementFt);
         return { ...r, height: snap(newFt * PIXELS_PER_FOOT) };
       }
       return r;
     }));
   };
 
-  // Update opening position (e.g. from the slider positioner)
-  const updateOpeningPosition = (id: string, x: number, y: number) => {
-    setOpenings(prev => prev.map(o => o.id === id ? { ...o, x, y } : o));
+  const changeRoomLabel = (label: string) => {
+    if (selectedItem && selectedItem.type === "room") {
+      setRooms(rooms.map(r => r.id === selectedItem.id ? { ...r, label } : r));
+    }
   };
 
-  // Touch gesture start
-  const handleTouchStart = (e: any) => {
-    const { locationX, locationY } = e.nativeEvent;
+  const rotateElement = () => {
+    if (!selectedItem) return;
+    if (selectedItem.type === "furniture") {
+      setFurniture(furniture.map(f => f.id === selectedItem.id ? { ...f, rotation: (f.rotation + 45) % 360 } : f));
+    } else if (selectedItem.type === "opening") {
+      setOpenings(openings.map(o => o.id === selectedItem.id ? { ...o, rotation: (o.rotation + 90) % 360 } : o));
+    }
+  };
 
-    // Prioritize checking active wall resize handles of the selected room
+  const deleteElement = () => {
+    if (!selectedItem) return;
+    const { type, id } = selectedItem;
+    if (type === "room") setRooms(rooms.filter(r => r.id !== id));
+    else if (type === "wall") setCustomWalls(customWalls.filter(w => w.id !== id));
+    else if (type === "opening") setOpenings(openings.filter(o => o.id !== id));
+    else if (type === "furniture") setFurniture(furniture.filter(f => f.id !== id));
+    setSelectedItem(null);
+  };
+
+  // Compile all layout walls (Rooms boundaries + Custom drawn lines)
+  const getCompilationWalls = (): CustomWall[] => {
+    const list: CustomWall[] = [...customWalls];
+    rooms.forEach(r => {
+      list.push({ id: `${r.id}_top`, x1: r.x, y1: r.y, x2: r.x + r.width, y2: r.y, thickness: 0.5 });
+      list.push({ id: `${r.id}_bot`, x1: r.x, y1: r.y + r.height, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.5 });
+      list.push({ id: `${r.id}_lft`, x1: r.x, y1: r.y, x2: r.x, y2: r.y + r.height, thickness: 0.5 });
+      list.push({ id: `${r.id}_rgt`, x1: r.x + r.width, y1: r.y, x2: r.x + r.width, y2: r.y + r.height, thickness: 0.5 });
+    });
+    return list;
+  };
+
+  // Touch Gestures: 2D drawing & 3D camera controls
+  const handleTouchStart = (e: any) => {
+    const { locationX, locationY, touches } = e.nativeEvent;
+
+    // 1. Zoom Pinch check
+    if (touches && touches.length === 2) {
+      const t1 = touches[0];
+      const t2 = touches[1];
+      const dist = Math.sqrt(Math.pow(t1.locationX - t2.locationX, 2) + Math.pow(t1.locationY - t2.locationY, 2));
+      setPinchDist(dist);
+      return;
+    }
+
+    setTouchStartX(locationX);
+    setTouchStartY(locationY);
+
+    if (viewMode !== "2d") return; // 3D handles gestures on drag move only
+
+    // 2. Custom Wall Drawing mode
+    if (tool === "draw_wall") {
+      const snapStart = getNearestEndpoint(locationX, locationY);
+      const startX = snapStart ? snapStart.x : snap(locationX);
+      const startY = snapStart ? snapStart.y : snap(locationY);
+      setDrawingWall({ x1: startX, y1: startY, x2: startX, y2: startY });
+      return;
+    }
+
+    // 3. Select Mode Hit Checks
+    // Check handles resize hit of selected room
     if (selectedItem && selectedItem.type === "room") {
-      const room = rooms.find((r) => r.id === selectedItem.id);
+      const room = rooms.find(r => r.id === selectedItem.id);
       if (room) {
-        const hSize = 25; // hit area size
-        
-        // Right wall handle
+        const hSize = 25;
         if (Math.abs(locationX - (room.x + room.width)) < hSize && Math.abs(locationY - (room.y + room.height/2)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "right" });
           return;
         }
-        // Left wall handle
         if (Math.abs(locationX - room.x) < hSize && Math.abs(locationY - (room.y + room.height/2)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "left" });
           return;
         }
-        // Bottom wall handle
         if (Math.abs(locationX - (room.x + room.width/2)) < hSize && Math.abs(locationY - (room.y + room.height)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "bottom" });
           return;
         }
-        // Top wall handle
         if (Math.abs(locationX - (room.x + room.width/2)) < hSize && Math.abs(locationY - room.y) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "top" });
           return;
@@ -412,7 +496,7 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // Check furniture hits
     const hitFurn = [...furniture].reverse().find(
-      (f) => locationX >= f.x && locationX <= f.x + f.width && locationY >= f.y && locationY <= f.y + f.height
+      f => locationX >= f.x && locationX <= f.x + f.width && locationY >= f.y && locationY <= f.y + f.height
     );
     if (hitFurn) {
       setSelectedItem({ type: "furniture", id: hitFurn.id });
@@ -422,7 +506,7 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // Check openings hits
     const hitOp = openings.find(
-      (o) => Math.abs(locationX - o.x) < 22 && Math.abs(locationY - o.y) < 22
+      o => Math.abs(locationX - o.x) < 22 && Math.abs(locationY - o.y) < 22
     );
     if (hitOp) {
       setSelectedItem({ type: "opening", id: hitOp.id });
@@ -430,17 +514,30 @@ export default function FloorPlanScreen({ navigation }: any) {
       return;
     }
 
+    // Check custom walls hits
+    const hitWall = customWalls.find(w => {
+      // Distance from point to line segment
+      const l2 = Math.pow(w.x2 - w.x1, 2) + Math.pow(w.y2 - w.y1, 2);
+      if (l2 === 0) return false;
+      const t = Math.max(0, Math.min(1, ((locationX - w.x1) * (w.x2 - w.x1) + (locationY - w.y1) * (w.y2 - w.y1)) / l2));
+      const projX = w.x1 + t * (w.x2 - w.x1);
+      const projY = w.y1 + t * (w.y2 - w.y1);
+      const dist = Math.sqrt(Math.pow(locationX - projX, 2) + Math.pow(locationY - projY, 2));
+      return dist < 12; // hit radius
+    });
+    if (hitWall) {
+      setSelectedItem({ type: "wall", id: hitWall.id });
+      return;
+    }
+
     // Check rooms hits
     const hitRoom = [...rooms].reverse().find(
-      (r) => locationX >= r.x && locationX <= r.x + r.width && locationY >= r.y && locationY <= r.y + r.height
+      r => locationX >= r.x && locationX <= r.x + r.width && locationY >= r.y && locationY <= r.y + r.height
     );
     if (hitRoom) {
       setSelectedItem({ type: "room", id: hitRoom.id });
-      
-      // Capture child items (furniture and openings) to move them together
       const childFurniture = furniture.filter(f => 
-        f.x >= hitRoom.x && f.x + f.width <= hitRoom.x + hitRoom.width && 
-        f.y >= hitRoom.y && f.y + f.height <= hitRoom.y + hitRoom.height
+        f.x >= hitRoom.x && f.x + f.width <= hitRoom.x + hitRoom.width && f.y >= hitRoom.y && f.y + f.height <= hitRoom.y + hitRoom.height
       ).map(f => ({ id: f.id, relativeX: f.x - hitRoom.x, relativeY: f.y - hitRoom.y }));
 
       const childOpenings = openings.filter(op => {
@@ -463,197 +560,210 @@ export default function FloorPlanScreen({ navigation }: any) {
       return;
     }
 
-    // Deselect if tapping empty grid
     setSelectedItem(null);
   };
 
-  // Touch move gestures
   const handleTouchMove = (e: any) => {
-    const { locationX, locationY } = e.nativeEvent;
+    const { locationX, locationY, touches } = e.nativeEvent;
+
+    // 1. Pinch zoom gesture
+    if (touches && touches.length === 2 && viewMode === "3d") {
+      const t1 = touches[0];
+      const t2 = touches[1];
+      const dist = Math.sqrt(Math.pow(t1.locationX - t2.locationX, 2) + Math.pow(t1.locationY - t2.locationY, 2));
+      if (pinchDist > 0) {
+        const ratio = dist / pinchDist;
+        setZoomScale(prev => Math.max(0.2, Math.min(2.5, prev * ratio)));
+      }
+      setPinchDist(dist);
+      return;
+    }
+
+    const dx = locationX - touchStartX;
+    const dy = locationY - touchStartY;
+
+    // 2. 3D orbit and walkthrough camera controllers
+    if (viewMode === "3d") {
+      // Orbit drag rotation
+      setOrbitYaw(prev => (prev + dx * 0.4) % 360);
+      setOrbitPitch(prev => Math.max(10, Math.min(85, prev - dy * 0.4)));
+      setTouchStartX(locationX);
+      setTouchStartY(locationY);
+      return;
+    }
+
+    if (viewMode === "walkthrough") {
+      // Split Touch screen drag: Left = Walk, Right = Look Gaze
+      const splitLimit = windowWidth / 2;
+      if (touchStartX < splitLimit) {
+        // Move camera position (Forward/Backward/Strafe)
+        const moveSpeed = 0.08;
+        const rad = (walkYaw * Math.PI) / 180;
+        
+        // dy controls forward/backward (Z direction in camera coords)
+        const forwardX = moveSpeed * dy * Math.sin(rad);
+        const forwardY = -moveSpeed * dy * Math.cos(rad);
+        // dx controls left/right strafe
+        const strafeX = moveSpeed * dx * Math.cos(rad);
+        const strafeY = moveSpeed * dx * Math.sin(rad);
+
+        setCamX(prev => prev + forwardX + strafeX);
+        setCamY(prev => prev + forwardY + strafeY);
+      } else {
+        // Look look-up/down yaw and pitch
+        setWalkYaw(prev => (prev + dx * 0.4) % 360);
+        setWalkPitch(prev => Math.max(-45, Math.min(45, prev - dy * 0.4)));
+      }
+      setTouchStartX(locationX);
+      setTouchStartY(locationY);
+      return;
+    }
+
+    // 3. 2D editing and drawing movement drag
+    if (tool === "draw_wall" && drawingWall) {
+      const snapTarget = getNearestEndpoint(locationX, locationY);
+      const snapX = snapTarget ? snapTarget.x : snap(locationX);
+      const snapY = snapTarget ? snapTarget.y : snap(locationY);
+      
+      setDrawingWall({ ...drawingWall, x2: snapX, y2: snapY });
+      setSnapIndicator(snapTarget);
+      return;
+    }
+
     if (!draggedItem) return;
 
     if (draggedItem.type === "room") {
-      const room = rooms.find((r) => r.id === draggedItem.id);
+      const room = rooms.find(r => r.id === draggedItem.id);
       if (!room) return;
 
       if (draggedItem.handle === "right") {
-        const newW = Math.max(20, snap(locationX - room.x));
-        setRooms(rooms.map((r) => (r.id === room.id ? { ...r, width: newW } : r)));
+        const newW = Math.max(16, snap(locationX - room.x));
+        setRooms(rooms.map(r => r.id === room.id ? { ...r, width: newW } : r));
       } else if (draggedItem.handle === "left") {
-        const newW = Math.max(20, snap(room.x + room.width - locationX));
+        const newW = Math.max(16, snap(room.x + room.width - locationX));
         const newX = snap(locationX);
-        if (newW >= 20) {
-          setRooms(rooms.map((r) => (r.id === room.id ? { ...r, x: newX, width: newW } : r)));
+        if (newW >= 16) {
+          setRooms(rooms.map(r => r.id === room.id ? { ...r, x: newX, width: newW } : r));
         }
       } else if (draggedItem.handle === "bottom") {
-        const newH = Math.max(20, snap(locationY - room.y));
-        setRooms(rooms.map((r) => (r.id === room.id ? { ...r, height: newH } : r)));
+        const newH = Math.max(16, snap(locationY - room.y));
+        setRooms(rooms.map(r => r.id === room.id ? { ...r, height: newH } : r));
       } else if (draggedItem.handle === "top") {
-        const newH = Math.max(20, snap(room.y + room.height - locationY));
+        const newH = Math.max(16, snap(room.y + room.height - locationY));
         const newY = snap(locationY);
-        if (newH >= 20) {
-          setRooms(rooms.map((r) => (r.id === room.id ? { ...r, y: newY, height: newH } : r)));
+        if (newH >= 16) {
+          setRooms(rooms.map(r => r.id === room.id ? { ...r, y: newY, height: newH } : r));
         }
       } else if (draggedItem.handle === "move") {
         const newX = snap(locationX - (draggedItem.offsetX || 0));
         const newY = snap(locationY - (draggedItem.offsetY || 0));
 
-        // Lego-Style Snapping logic (snap edges to other rooms)
+        // Lego-Style Snap edge detection (15px snap radius)
         let snappedX = newX;
         let snappedY = newY;
-        const SNAP_THRESHOLD = 15;
+        const SNAP_LIMIT = 15;
+        let snapped = false;
 
         for (const other of rooms) {
           if (other.id === room.id) continue;
-
-          // X axis snapping
-          if (Math.abs(newX - other.x) < SNAP_THRESHOLD) {
+          
+          // X snap
+          if (Math.abs(newX - other.x) < SNAP_LIMIT) {
             snappedX = other.x;
-          } else if (Math.abs((newX + room.width) - (other.x + other.width)) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs((newX + room.width) - (other.x + other.width)) < SNAP_LIMIT) {
             snappedX = other.x + other.width - room.width;
-          } else if (Math.abs(newX - (other.x + other.width)) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs(newX - (other.x + other.width)) < SNAP_LIMIT) {
             snappedX = other.x + other.width;
-          } else if (Math.abs((newX + room.width) - other.x) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs((newX + room.width) - other.x) < SNAP_LIMIT) {
             snappedX = other.x - room.width;
+            snapped = true;
           }
 
-          // Y axis snapping
-          if (Math.abs(newY - other.y) < SNAP_THRESHOLD) {
+          // Y snap
+          if (Math.abs(newY - other.y) < SNAP_LIMIT) {
             snappedY = other.y;
-          } else if (Math.abs((newY + room.height) - (other.y + other.height)) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs((newY + room.height) - (other.y + other.height)) < SNAP_LIMIT) {
             snappedY = other.y + other.height - room.height;
-          } else if (Math.abs(newY - (other.y + other.height)) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs(newY - (other.y + other.height)) < SNAP_LIMIT) {
             snappedY = other.y + other.height;
-          } else if (Math.abs((newY + room.height) - other.y) < SNAP_THRESHOLD) {
+            snapped = true;
+          } else if (Math.abs((newY + room.height) - other.y) < SNAP_LIMIT) {
             snappedY = other.y - room.height;
+            snapped = true;
           }
         }
 
-        // Update room position
-        setRooms(rooms.map((r) => (r.id === room.id ? { ...r, x: Math.max(0, snappedX), y: Math.max(0, snappedY) } : r)));
-
-        // Move child furniture along with the room
-        if (draggedItem.childFurniture && draggedItem.childFurniture.length > 0) {
+        setRooms(rooms.map(r => r.id === room.id ? { ...r, x: Math.max(0, snappedX), y: Math.max(0, snappedY) } : r));
+        
+        // Move child items along
+        if (draggedItem.childFurniture) {
           setFurniture(prev => prev.map(f => {
-            const child = draggedItem.childFurniture?.find(c => c.id === f.id);
-            if (child) {
-              return { ...f, x: snappedX + child.relativeX, y: snappedY + child.relativeY };
-            }
-            return f;
+            const match = draggedItem.childFurniture?.find(c => c.id === f.id);
+            return match ? { ...f, x: snappedX + match.relativeX, y: snappedY + match.relativeY } : f;
           }));
         }
-
-        // Move child openings along with the room
-        if (draggedItem.childOpenings && draggedItem.childOpenings.length > 0) {
+        if (draggedItem.childOpenings) {
           setOpenings(prev => prev.map(op => {
-            const child = draggedItem.childOpenings?.find(c => c.id === op.id);
-            if (child) {
-              return { ...op, x: snappedX + child.relativeX, y: snappedY + child.relativeY };
-            }
-            return op;
+            const match = draggedItem.childOpenings?.find(c => c.id === op.id);
+            return match ? { ...op, x: snappedX + match.relativeX, y: snappedY + match.relativeY } : op;
           }));
         }
       }
     } else if (draggedItem.type === "furniture") {
-      const furn = furniture.find((f) => f.id === draggedItem.id);
+      const furn = furniture.find(f => f.id === draggedItem.id);
       if (!furn) return;
       const newX = snap(locationX - (draggedItem.offsetX || 0));
       const newY = snap(locationY - (draggedItem.offsetY || 0));
-      setFurniture(furniture.map((f) => (f.id === furn.id ? { ...f, x: Math.max(0, newX), y: Math.max(0, newY) } : f)));
+      setFurniture(furniture.map(f => f.id === furn.id ? { ...f, x: Math.max(0, newX), y: Math.max(0, newY) } : f));
     } else if (draggedItem.type === "opening") {
-      const op = openings.find((o) => o.id === draggedItem.id);
+      const op = openings.find(o => o.id === draggedItem.id);
       if (!op) return;
-      
-      // Snaps opening magnetically to walls on drag move
-      const snapData = getMagneticallySnappedOpening(locationX, locationY, op.width);
-      setOpenings(openings.map((o) => (o.id === op.id ? { ...o, x: snapData.x, y: snapData.y, rotation: snapData.rot } : o)));
+      const snapData = getOpeningParentWall(op);
+      const snapX = snapData ? op.x : snap(locationX);
+      const snapY = snapData ? op.y : snap(locationY);
+      setOpenings(openings.map(o => o.id === op.id ? { ...o, x: snapX, y: snapY } : o));
     }
   };
 
   const handleTouchEnd = () => {
     setDraggedItem(null);
-  };
+    setPinchDist(0);
+    setSnapIndicator(null);
 
-  // Edit Room dimensions via custom text input values
-  const openDimModal = () => {
-    if (selectedItem && selectedItem.type === "room") {
-      const room = rooms.find((r) => r.id === selectedItem.id);
-      if (room) {
-        setInputWidthFt(String(room.width / PIXELS_PER_FOOT));
-        setInputHeightFt(String(room.height / PIXELS_PER_FOOT));
-        setDimModalVisible(true);
+    // Save drawn wall segment to list
+    if (tool === "draw_wall" && drawingWall) {
+      const dx = drawingWall.x2 - drawingWall.x1;
+      const dy = drawingWall.y2 - drawingWall.y1;
+      const length = Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_FOOT;
+
+      if (length >= 1.5) { // Only save walls longer than 1.5 ft
+        const id = "wall_" + Date.now();
+        const newWall: CustomWall = {
+          id,
+          x1: drawingWall.x1,
+          y1: drawingWall.y1,
+          x2: drawingWall.x2,
+          y2: drawingWall.y2,
+          thickness: 0.5, // 6 inches standard thickness
+        };
+        setCustomWalls([...customWalls, newWall]);
+        setSelectedItem({ type: "wall", id });
       }
+      setDrawingWall(null);
     }
   };
 
-  const saveExactDimensions = () => {
-    if (selectedItem && selectedItem.type === "room") {
-      const room = rooms.find((r) => r.id === selectedItem.id);
-      const wFt = parseFloat(inputWidthFt);
-      const hFt = parseFloat(inputHeightFt);
-
-      if (isNaN(wFt) || isNaN(hFt) || wFt <= 0 || hFt <= 0) {
-        Alert.alert("Invalid Input", "Please enter positive numbers for dimensions.");
-        return;
-      }
-
-      setRooms(
-        rooms.map((r) =>
-          r.id === selectedItem.id
-            ? { ...r, width: snap(wFt * PIXELS_PER_FOOT), height: snap(hFt * PIXELS_PER_FOOT) }
-            : r
-        )
-      );
-      setDimModalVisible(false);
-    }
+  // Update opening slider coordinates
+  const updateOpeningPosition = (id: string, x: number, y: number) => {
+    setOpenings(prev => prev.map(o => o.id === id ? { ...o, x, y } : o));
   };
 
-  // Modify label of selected room
-  const changeSelectedRoomLabel = (label: string) => {
-    if (selectedItem && selectedItem.type === "room") {
-      const presetColors: { [key: string]: string } = {
-        "Master Bed": "#D1FAE5",
-        Bedroom: "#E0F2FE",
-        "Living Room": "#F0FDF4",
-        Kitchen: "#FEF3C7",
-        Bathroom: "#FEE2E2",
-        Balcony: "#FAF5FF",
-        Dining: "#FAF5FF",
-        Toilet: "#FEE2E2",
-        Hall: "#F0FDF4",
-      };
-      const color = presetColors[label] || "#F1F5F9";
-      setRooms(rooms.map((r) => (r.id === selectedItem.id ? { ...r, label, color } : r)));
-    }
-  };
-
-  const rotateElement = () => {
-    if (!selectedItem) return;
-    if (selectedItem.type === "furniture") {
-      setFurniture(
-        furniture.map((f) => (f.id === selectedItem.id ? { ...f, rotation: (f.rotation + 45) % 360 } : f))
-      );
-    } else if (selectedItem.type === "opening") {
-      setOpenings(
-        openings.map((o) => (o.id === selectedItem.id ? { ...o, rotation: (o.rotation + 90) % 360 } : o))
-      );
-    }
-  };
-
-  const deleteElement = () => {
-    if (!selectedItem) return;
-    const { type, id } = selectedItem;
-    if (type === "room") {
-      setRooms(rooms.filter((r) => r.id !== id));
-    } else if (type === "opening") {
-      setOpenings(openings.filter((o) => o.id !== id));
-    } else if (type === "furniture") {
-      setFurniture(furniture.filter((f) => f.id !== id));
-    }
-    setSelectedItem(null);
-  };
-
-  // Area and Cost Math
+  // Area calculation math
   const getRoomArea = (room: Room) => {
     return Math.round((room.width / PIXELS_PER_FOOT) * (room.height / PIXELS_PER_FOOT));
   };
@@ -662,933 +772,788 @@ export default function FloorPlanScreen({ navigation }: any) {
     return rooms.reduce((sum, r) => sum + getRoomArea(r), 0);
   };
 
-  const getEstimatedCost = () => {
-    return getTotalArea() * (parseFloat(ratePerSqFt) || 0);
-  };
-
-  // Navigations to external calculators
-  const handleEstimatePress = () => {
-    const totalArea = getTotalArea();
-    if (totalArea === 0) {
-      Alert.alert("Empty Layout", "Please drop room blocks to calculate area first.");
-      return;
-    }
-    navigation.navigate("ConstructionCalculator", {
-      projectData: { area: totalArea.toString() },
-      projectName,
-    });
-  };
-
-  const handleMaterialEstimatePress = () => {
-    const totalArea = getTotalArea();
-    if (totalArea === 0) {
-      Alert.alert("Empty Layout", "Please drop room blocks to calculate area first.");
-      return;
-    }
-    navigation.navigate("MaterialCalculator", {
-      projectData: { area: totalArea.toString() },
-      projectName,
-    });
-  };
-
-  // Pre-loaded Blueprint layouts
+  // Pre-load AutoCAD blueprints
   const loadPresetTemplate = (type: "1bhk" | "2bhk" | "studio") => {
     setSelectedItem(null);
     if (type === "studio") {
       setRooms([
-        { id: "r1", label: "Studio Hall", x: 40, y: 60, width: 200, height: 200, color: "#E0F2FE" },
-        { id: "r2", label: "Bathroom", x: 240, y: 60, width: 120, height: 100, color: "#FEE2E2" },
-        { id: "r3", label: "Kitchen", x: 240, y: 160, width: 120, height: 100, color: "#FEF3C7" },
+        { id: "r1", label: "Studio Hall", x: 40, y: 60, width: 80, height: 100, color: "#FFFFFF05" },
+        { id: "r2", label: "Bathroom", x: 120, y: 60, width: 40, height: 50, color: "#FFFFFF05" },
+        { id: "r3", label: "Kitchen", x: 120, y: 110, width: 40, height: 50, color: "#FFFFFF05" },
       ]);
       setOpenings([
-        { id: "o1", type: "door", x: 40, y: 140, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 240, y: 110, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 240, y: 210, width: 28, rotation: 90 },
-        { id: "o4", type: "window", x: 140, y: 60, width: 36, rotation: 0 },
-        { id: "o5", type: "window", x: 360, y: 210, width: 36, rotation: 90 },
+        { id: "o1", type: "door", x: 40, y: 110, width: 28, rotation: 90 },
+        { id: "o2", type: "door", x: 120, y: 85, width: 28, rotation: 90 },
+        { id: "o3", type: "door", x: 120, y: 135, width: 28, rotation: 90 },
+        { id: "o4", type: "window", x: 80, y: 60, width: 36, rotation: 0 },
+        { id: "o5", type: "window", x: 160, y: 135, width: 36, rotation: 90 },
       ]);
       setFurniture([
-        { id: "f1", type: "bed", x: 60, y: 80, width: 60, height: 70, rotation: 0 },
-        { id: "f2", type: "sofa", x: 150, y: 180, width: 70, height: 40, rotation: 180 },
-        { id: "f3", type: "toilet", x: 310, y: 80, width: 25, height: 35, rotation: 0 },
+        { id: "f1", type: "bed", x: 50, y: 70, width: 28, height: 36, rotation: 0 },
+        { id: "f2", type: "sofa", x: 90, y: 120, width: 20, height: 32, rotation: 180 },
       ]);
+      setCustomWalls([]);
     } else if (type === "1bhk") {
       setRooms([
-        { id: "r1", label: "Living Room", x: 40, y: 40, width: 180, height: 180, color: "#F0FDF4" },
-        { id: "r2", label: "Master Bed", x: 220, y: 40, width: 140, height: 180, color: "#D1FAE5" },
-        { id: "r3", label: "Kitchen", x: 40, y: 220, width: 180, height: 140, color: "#FEF3C7" },
-        { id: "r4", label: "Bathroom", x: 220, y: 220, width: 140, height: 140, color: "#FEE2E2" },
+        { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
+        { id: "r2", label: "Master Bed", x: 120, y: 40, width: 60, height: 80, color: "#FFFFFF05" },
+        { id: "r3", label: "Kitchen", x: 40, y: 120, width: 80, height: 60, color: "#FFFFFF05" },
+        { id: "r4", label: "Bathroom", x: 120, y: 120, width: 60, height: 60, color: "#FFFFFF05" },
       ]);
       setOpenings([
-        { id: "o1", type: "door", x: 40, y: 130, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 220, y: 80, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 220, y: 280, width: 28, rotation: 90 },
-        { id: "o4", type: "window", x: 130, y: 40, width: 36, rotation: 0 },
-        { id: "o5", type: "window", x: 290, y: 40, width: 36, rotation: 0 },
+        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
+        { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
+        { id: "o3", type: "door", x: 120, y: 150, width: 28, rotation: 90 },
+        { id: "o4", type: "window", x: 80, y: 40, width: 36, rotation: 0 },
+        { id: "o5", type: "window", x: 150, y: 40, width: 36, rotation: 0 },
       ]);
       setFurniture([
-        { id: "f1", type: "bed", x: 260, y: 60, width: 60, height: 70, rotation: 0 },
-        { id: "f2", type: "sofa", x: 60, y: 70, width: 70, height: 40, rotation: 0 },
+        { id: "f1", type: "bed", x: 135, y: 55, width: 32, height: 48, rotation: 0 },
+        { id: "f2", type: "sofa", x: 55, y: 50, width: 20, height: 48, rotation: 0 },
       ]);
+      setCustomWalls([]);
     } else if (type === "2bhk") {
       setRooms([
-        { id: "r1", label: "Living Room", x: 40, y: 40, width: 160, height: 160, color: "#F0FDF4" },
-        { id: "r2", label: "Master Bed", x: 200, y: 40, width: 160, height: 160, color: "#D1FAE5" },
-        { id: "r3", label: "Kids Bed", x: 40, y: 200, width: 160, height: 160, color: "#E0F2FE" },
-        { id: "r4", label: "Kitchen", x: 200, y: 200, width: 100, height: 160, color: "#FEF3C7" },
-        { id: "r5", label: "Toilet", x: 300, y: 200, width: 60, height: 160, color: "#FEE2E2" },
+        { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
+        { id: "r2", label: "Master Bed", x: 120, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
+        { id: "r3", label: "Kids Bed", x: 40, y: 120, width: 80, height: 80, color: "#FFFFFF05" },
+        { id: "r4", label: "Kitchen", x: 120, y: 120, width: 50, height: 80, color: "#FFFFFF05" },
+        { id: "r5", label: "Toilet", x: 170, y: 120, width: 30, height: 80, color: "#FFFFFF05" },
       ]);
       setOpenings([
-        { id: "o1", type: "door", x: 40, y: 120, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 200, y: 80, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 100, y: 200, width: 28, rotation: 0 },
-        { id: "o4", type: "door", x: 240, y: 200, width: 28, rotation: 0 },
-        { id: "o5", type: "door", x: 300, y: 260, width: 28, rotation: 90 },
+        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
+        { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
+        { id: "o3", type: "door", x: 80, y: 120, width: 28, rotation: 0 },
+        { id: "o4", type: "door", x: 145, y: 120, width: 28, rotation: 0 },
+        { id: "o5", type: "door", x: 170, y: 150, width: 28, rotation: 90 },
       ]);
       setFurniture([
-        { id: "f1", type: "bed", x: 250, y: 60, width: 60, height: 70, rotation: 0 },
-        { id: "f2", type: "bed", x: 60, y: 220, width: 60, height: 70, rotation: 0 },
+        { id: "f1", type: "bed", x: 140, y: 50, width: 32, height: 48, rotation: 0 },
+        { id: "f2", type: "bed", x: 50, y: 130, width: 32, height: 48, rotation: 0 },
       ]);
-    }
-    setViewMode("2d");
-  };
-
-  // Export PDF Report Blueprint
-  const handleExportPDF = async () => {
-    const totalArea = getTotalArea();
-    const cost = getEstimatedCost();
-
-    const svgContent = `
-      <svg width="600" height="600" viewBox="0 0 400 400" style="background:#ffffff; border: 1px solid #cbd5e1; margin: auto; display: block;">
-        ${rooms
-          .map(
-            (r) => `
-          <rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="${r.color}" stroke="#1E293B" stroke-width="4"/>
-          <text x="${r.x + r.width / 2}" y="${r.y + r.height / 2 - 5}" text-anchor="middle" font-family="Arial" font-size="10" font-weight="bold" fill="#1E293B">${r.label}</text>
-          <text x="${r.x + r.width / 2}" y="${r.y + r.height / 2 + 8}" text-anchor="middle" font-family="Arial" font-size="8" fill="#64748B">${Math.round(r.width / 4)}'x${Math.round(r.height / 4)}' (${getRoomArea(r)} sq ft)</text>
-        `
-          )
-          .join("")}
-        ${openings
-          .map((o) => {
-            if (o.type === "door") {
-              return `<circle cx="${o.x}" cy="${o.y}" r="6" fill="#D9A443"/>
-                      <line x1="${o.x}" y1="${o.y}" x2="${o.x + o.width * Math.cos((o.rotation * Math.PI) / 180)}" y2="${o.y + o.width * Math.sin((o.rotation * Math.PI) / 180)}" stroke="#D9A443" stroke-width="3"/>`;
-            } else {
-              return `<rect x="${o.x - o.width / 2}" y="${o.y - 4}" width="${o.width}" height="8" fill="#FFFFFF" stroke="#3B82F6" stroke-width="2"/>`;
-            }
-          })
-          .join("")}
-        ${furniture
-          .map(
-            (f) => `
-          <rect x="${f.x}" y="${f.y}" width="${f.width}" height="${f.height}" rx="3" fill="#E2E8F0" stroke="#94A3B8" stroke-width="1" transform="rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})"/>
-          <text x="${f.x + f.width / 2}" y="${f.y + f.height / 2 + 3}" text-anchor="middle" font-family="Arial" font-size="6" fill="#64748B" transform="rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})">${f.type.toUpperCase()}</text>
-        `
-          )
-          .join("")}
-      </svg>
-    `;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <meta charset="utf-8">
-          <title>${projectName}</title>
-          <style>
-            body { font-family: Arial, sans-serif; color: #1e293b; padding: 30px; }
-            h1 { font-size: 22px; color: #1e293b; margin: 0; }
-            h2 { font-size: 13px; color: #64748b; font-weight: normal; margin: 5px 0 20px 0; }
-            .header { border-bottom: 2px solid #cbd5e1; padding-bottom: 15px; margin-bottom: 25px; }
-            .badge { background: #d9a443; color: white; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
-            .section-title { font-size: 15px; font-weight: bold; margin-top: 25px; margin-bottom: 10px; border-left: 4px solid #d9a443; padding-left: 8px; }
-            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-            th, td { border: 1px solid #cbd5e1; padding: 10px; text-align: left; }
-            th { background: #f8fafc; }
-            .total-row { font-weight: bold; background: #f1f5f9; }
-            .footer { margin-top: 40px; text-align: center; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <table style="border:none; width:100%; margin:0;">
-              <tr style="border:none;">
-                <td style="border:none; padding:0;">
-                  <h1>${projectName}</h1>
-                  <h2>Professional Blueprint Report & Estimates</h2>
-                </td>
-                <td align="right" style="border:none; padding:0; font-size:11px;">
-                  <strong>HDE Platform</strong><br>
-                  Date: ${new Date().toLocaleDateString()}<br>
-                  Status: <span class="badge">APPROVED PLAN</span>
-                </td>
-              </tr>
-            </table>
-          </div>
-
-          <div class="section-title">2D Layout Design Sketch</div>
-          ${svgContent}
-
-          <div class="section-title">Room & Carpet Area Details</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Space Function</th>
-                <th>Dimensions (Feet)</th>
-                <th>Carpet Area (Sq Ft)</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rooms
-                .map(
-                  (r) => `
-                <tr>
-                  <td><strong>${r.label}</strong></td>
-                  <td>${Math.round(r.width / 4)}' x ${Math.round(r.height / 4)}'</td>
-                  <td>${getRoomArea(r)} sq ft</td>
-                </tr>
-              `
-                )
-                .join("")}
-              <tr class="total-row">
-                <td colspan="2">Total Carpet Area</td>
-                <td>${totalArea} sq ft</td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="section-title">HDE Civil Cost Estimate</div>
-          <table>
-            <thead>
-              <tr>
-                <th>Calculation Factor</th>
-                <th>Rate value</th>
-                <th>Total Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Standard Construction Cost</td>
-                <td>Rs. ${ratePerSqFt} / sq ft</td>
-                <td><strong>Rs. ${cost.toLocaleString()}</strong></td>
-              </tr>
-            </tbody>
-          </table>
-
-          <div class="footer">
-            Generated via HDE: Floor Plan & Estimator app. All rights reserved.
-          </div>
-        </body>
-      </html>
-    `;
-
-    try {
-      const { uri } = await Print.printToFileAsync({ html: htmlContent });
-      await Sharing.shareAsync(uri, { mimeType: "application/pdf", dialogTitle: "Export PDF Plan" });
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Error", "Could not generate PDF report.");
+      setCustomWalls([]);
     }
   };
 
-  // 3D Isometric rotation mappings
-  const toIsometric = (x: number, y: number, z: number = 0) => {
-    // 1. Rotate around canvas center (200, 200)
-    const radRot = (rotationAngle * Math.PI) / 180;
-    const dx = x - 200;
-    const dy = y - 200;
-    const rotX = dx * Math.cos(radRot) - dy * Math.sin(radRot) + 200;
-    const rotY = dx * Math.sin(radRot) + dy * Math.cos(radRot) + 200;
+  // 3D Camera Projection Mathematics (Yaw, Pitch, Translation, FOV)
+  const projectPoint3D = (x: number, y: number, z: number) => {
+    // Current camera parameters based on viewMode
+    let activeCamX = camX;
+    let activeCamY = camY;
+    let activeCamZ = camZ;
+    let activeYaw = walkYaw;
+    let activePitch = walkPitch;
+    const FOV = 280;
 
-    // 2. Project into isometric coordinates
-    const radTilt = (tiltAngle * Math.PI) / 180;
-    const centerX = 200;
-    const centerY = 180;
+    if (viewMode === "3d") {
+      // Orbit camera on a sphere around the layout center
+      const center = getLayoutCenter();
+      const radius = 55; // Camera radius distance
+      const yawRad = (orbitYaw * Math.PI) / 180;
+      const pitchRad = (orbitPitch * Math.PI) / 180;
 
-    const isoX = (rotX - rotY) * Math.cos(30 * Math.PI / 180) * zoomScale + centerX;
-    const isoY = ((rotX + rotY) * Math.sin(radTilt) - z) * zoomScale + centerY;
+      activeCamX = center.x + radius * Math.cos(yawRad) * Math.cos(pitchRad);
+      activeCamY = center.y + radius * Math.sin(yawRad) * Math.cos(pitchRad);
+      activeCamZ = 4.5 + radius * Math.sin(pitchRad);
 
-    return { x: isoX, y: isoY, depth: rotY };
+      activeYaw = orbitYaw + 180;
+      activePitch = -orbitPitch;
+    }
+
+    // 1. Translate point relative to camera
+    const dx = x - activeCamX;
+    const dy = y - activeCamY;
+    const dz = z - activeCamZ;
+
+    // 2. Rotate yaw around Z-axis
+    const yawRad = (activeYaw * Math.PI) / 180;
+    const rotX = dx * Math.cos(yawRad) - dy * Math.sin(yawRad);
+    const rotY = dx * Math.sin(yawRad) + dy * Math.cos(yawRad);
+
+    // 3. Rotate pitch around X-axis (tilt camera)
+    const pitchRad = (activePitch * Math.PI) / 180;
+    const rotZ = dz * Math.cos(pitchRad) - rotY * Math.sin(pitchRad);
+    const depth = dz * Math.sin(pitchRad) + rotY * Math.cos(pitchRad);
+
+    return {
+      x: depth > 0.1 ? (rotX / depth) * FOV + windowWidth / 2 : -9999,
+      y: depth > 0.1 ? (rotZ / depth) * FOV + viewportHeight / 2 : -9999,
+      depth,
+    };
   };
 
-  const renderIsometricScene = () => {
-    const list: React.ReactNode[] = [];
-    const wallHeight = 42; // wall extrusion height
-
-    // 1. Draw Ground Room Floor Slabs
-    rooms.forEach((room) => {
-      const p1 = toIsometric(room.x, room.y);
-      const p2 = toIsometric(room.x + room.width, room.y);
-      const p3 = toIsometric(room.x + room.width, room.y + room.height);
-      const p4 = toIsometric(room.x, room.y + room.height);
-
-      list.push(
-        <G key={`iso_room_${room.id}`}>
-          <Path d={`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y} L ${p4.x} ${p4.y} Z`} fill={room.color} stroke="#94A3B8" strokeWidth={0.5} />
-          <SvgText x={(p1.x + p3.x) / 2} y={(p1.y + p3.y) / 2} textAnchor="middle" fontSize={8} fontWeight="bold" fill="#334155">
-            {room.label}
-          </SvgText>
-        </G>
-      );
+  const getLayoutCenter = () => {
+    if (rooms.length === 0 && customWalls.length === 0) return { x: 20, y: 20 };
+    let minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+    
+    rooms.forEach(r => {
+      const rx = r.x / 4;
+      const ry = r.y / 4;
+      const rw = r.width / 4;
+      const rh = r.height / 4;
+      minX = Math.min(minX, rx);
+      maxX = Math.max(maxX, rx + rw);
+      minY = Math.min(minY, ry);
+      maxY = Math.max(maxY, ry + rh);
     });
 
-    // 2. Depth sort all standing structures (Walls, Doors/Windows, Furniture)
-    const elementsToRender: { depth: number; element: React.ReactNode }[] = [];
+    customWalls.forEach(w => {
+      const wx1 = w.x1 / 4;
+      const wy1 = w.y1 / 4;
+      const wx2 = w.x2 / 4;
+      const wy2 = w.y2 / 4;
+      minX = Math.min(minX, wx1, wx2);
+      maxX = Math.max(maxX, wx1, wx2);
+      minY = Math.min(minY, wy1, wy2);
+      maxY = Math.max(maxY, wy1, wy2);
+    });
 
-    // Walls (Automatic box borders for each room)
+    return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+  };
+
+  // Rendering engine: 3D walls, slabs, doors, and furniture
+  const render3DLayout = () => {
+    const renderQueue: { depth: number; key: string; element: React.ReactNode }[] = [];
+
+    // 1. Draw floor slabs
     rooms.forEach((room) => {
-      // 4 walls per room box
-      const wallsList = [
-        { sx: room.x, sy: room.y, ex: room.x + room.width, ey: room.y, tag: "top" },
-        { sx: room.x + room.width, sy: room.y, ex: room.x + room.width, ey: room.y + room.height, tag: "right" },
-        { sx: room.x, sy: room.y + room.height, ex: room.x + room.width, ey: room.y + room.height, tag: "bottom" },
-        { sx: room.x, sy: room.y, ex: room.x, ey: room.y + room.height, tag: "left" },
-      ];
+      const rx = room.x / 4;
+      const ry = room.y / 4;
+      const rw = room.width / 4;
+      const rh = room.height / 4;
 
-      wallsList.forEach((w, idx) => {
-        const midX = (w.sx + w.ex) / 2;
-        const midY = (w.sy + w.ey) / 2;
-        const midProj = toIsometric(midX, midY);
+      const pA = projectPoint3D(rx, ry, 0);
+      const pB = projectPoint3D(rx + rw, ry, 0);
+      const pC = projectPoint3D(rx + rw, ry + rh, 0);
+      const pD = projectPoint3D(rx, ry + rh, 0);
 
-        const b1 = toIsometric(w.sx, w.sy);
-        const b2 = toIsometric(w.ex, w.ey);
-        const t1 = toIsometric(w.sx, w.sy, wallHeight);
-        const t2 = toIsometric(w.ex, w.ey, wallHeight);
-
-        const wallColor = (w.tag === "top" || w.tag === "bottom") ? "#475569" : "#64748B";
-
-        elementsToRender.push({
-          depth: midProj.depth,
+      // Verify points project on screen
+      if (pA.x !== -9999 && pB.x !== -9999 && pC.x !== -9999 && pD.x !== -9999) {
+        const avgDepth = (pA.depth + pB.depth + pC.depth + pD.depth) / 4;
+        renderQueue.push({
+          depth: avgDepth,
+          key: `slab_${room.id}`,
           element: (
-            <G key={`iso_wall_${room.id}_${idx}`}>
-              <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill={wallColor} stroke="#1E293B" strokeWidth={0.5} />
-              <Line x1={t1.x} y1={t1.y} x2={t2.x} y2={t2.y} stroke="#94A3B8" strokeWidth={4} strokeLinecap="round" />
+            <Path
+              d={`M ${pA.x} ${pA.y} L ${pB.x} ${pB.y} L ${pC.x} ${pC.y} L ${pD.x} ${pD.y} Z`}
+              fill="#2A2E33" // Slate Floor Slab
+              stroke="#434952"
+              strokeWidth={0.5}
+            />
+          ),
+        });
+      }
+    });
+
+    // 2. Extrude walls (9' height Ground Floor default)
+    const compiledWalls = getCompilationWalls();
+    compiledWalls.forEach((w, index) => {
+      const wx1 = w.x1 / 4;
+      const wy1 = w.y1 / 4;
+      const wx2 = w.x2 / 4;
+      const wy2 = w.y2 / 4;
+      const wallH = 9.0; // Default height 9 ft
+
+      const pBA = projectPoint3D(wx1, wy1, 0);
+      const pBB = projectPoint3D(wx2, wy2, 0);
+      const pTA = projectPoint3D(wx1, wy1, wallH);
+      const pTB = projectPoint3D(wx2, wy2, wallH);
+
+      if (pBA.x !== -9999 && pBB.x !== -9999 && pTA.x !== -9999 && pTB.x !== -9999) {
+        const avgDepth = (pBA.depth + pBB.depth + pTA.depth + pTB.depth) / 4;
+        
+        // AutoCAD diffuse shading calculations based on wall segment angle
+        const angle = Math.atan2(wy2 - wy1, wx2 - wx1);
+        const intensity = Math.floor(140 + Math.sin(angle) * 35);
+        const color = `rgb(${intensity}, ${intensity + 5}, ${intensity + 12})`;
+
+        renderQueue.push({
+          depth: avgDepth,
+          key: `wall_${w.id}_${index}`,
+          element: (
+            <Path
+              d={`M ${pBA.x} ${pBA.y} L ${pBB.x} ${pBB.y} L ${pTB.x} ${pTB.y} L ${pTA.x} ${pTA.y} Z`}
+              fill={color}
+              stroke="#5E6773"
+              strokeWidth={0.8}
+            />
+          ),
+        });
+      }
+    });
+
+    // 3. Openings (Windows and Doors)
+    openings.forEach((op) => {
+      const opX = op.x / 4;
+      const opY = op.y / 4;
+      const w = op.width / 4;
+      const rad = (op.rotation * Math.PI) / 180;
+      
+      const x1 = opX - (w / 2) * Math.cos(rad);
+      const y1 = opY - (w / 2) * Math.sin(rad);
+      const x2 = opX + (w / 2) * Math.cos(rad);
+      const y2 = opY + (w / 2) * Math.sin(rad);
+
+      const zMin = op.type === "door" ? 0 : 3.0; // sill height for window
+      const zMax = op.type === "door" ? 7.0 : 6.5; // height 7 ft for door, 3.5 ft for window
+
+      const p1 = projectPoint3D(x1, y1, zMin);
+      const p2 = projectPoint3D(x2, y2, zMin);
+      const p3 = projectPoint3D(x2, y2, zMax);
+      const p4 = projectPoint3D(x1, y1, zMax);
+
+      if (p1.x !== -9999 && p2.x !== -9999 && p3.x !== -9999 && p4.x !== -9999) {
+        const avgDepth = (p1.depth + p2.depth + p3.depth + p4.depth) / 4;
+        const color = op.type === "door" ? "#8A5A36" : "rgba(56, 189, 248, 0.45)"; // Blue glass for window
+        const strokeColor = op.type === "door" ? "#D9A443" : "#3B82F6";
+
+        renderQueue.push({
+          depth: avgDepth,
+          key: `op_3d_${op.id}`,
+          element: (
+            <Path
+              d={`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y} L ${p4.x} ${p4.y} Z`}
+              fill={color}
+              stroke={strokeColor}
+              strokeWidth={1}
+            />
+          ),
+        });
+      }
+    });
+
+    // 4. Furniture blocks
+    furniture.forEach((f) => {
+      const fx = f.x / 4;
+      const fy = f.y / 4;
+      const fw = f.width / 4;
+      const fh = f.height / 4;
+      const fHeight = f.type === "bed" ? 1.8 : f.type === "sofa" ? 2.5 : 2.5;
+
+      // Rotate furniture box vertices
+      const rad = (f.rotation * Math.PI) / 180;
+      const halfW = fw / 2;
+      const halfH = fh / 2;
+      const cx = fx + halfW;
+      const cy = fy + halfH;
+
+      const corners = [
+        { dx: -halfW, dy: -halfH },
+        { dx: halfW, dy: -halfH },
+        { dx: halfW, dy: halfH },
+        { dx: -halfW, dy: halfH },
+      ].map(offset => {
+        const rx = offset.dx * Math.cos(rad) - offset.dy * Math.sin(rad) + cx;
+        const ry = offset.dx * Math.sin(rad) + offset.dy * Math.cos(rad) + cy;
+        return { x: rx, y: ry };
+      });
+
+      // Project top and bottom corners
+      const pBottom = corners.map(c => projectPoint3D(c.x, c.y, 0));
+      const pTop = corners.map(c => projectPoint3D(c.x, c.y, fHeight));
+
+      if (pBottom.every(p => p.x !== -9999) && pTop.every(p => p.x !== -9999)) {
+        const avgDepth = pBottom.reduce((sum, p) => sum + p.depth, 0) / 4;
+
+        renderQueue.push({
+          depth: avgDepth,
+          key: `furn_3d_${f.id}`,
+          element: (
+            <G>
+              {/* Top Face */}
+              <Path
+                d={`M ${pTop[0].x} ${pTop[0].y} L ${pTop[1].x} ${pTop[1].y} L ${pTop[2].x} ${pTop[2].y} L ${pTop[3].x} ${pTop[3].y} Z`}
+                fill="#4E5660"
+                stroke="#6B7785"
+                strokeWidth={0.8}
+              />
+              {/* Front Facings */}
+              <Path
+                d={`M ${pBottom[0].x} ${pBottom[0].y} L ${pBottom[1].x} ${pBottom[1].y} L ${pTop[1].x} ${pTop[1].y} L ${pTop[0].x} ${pTop[0].y} Z`}
+                fill="#3C434C"
+                stroke="#6B7785"
+                strokeWidth={0.8}
+              />
+              <Path
+                d={`M ${pBottom[1].x} ${pBottom[1].y} L ${pBottom[2].x} ${pBottom[2].y} L ${pTop[2].x} ${pTop[2].y} L ${pTop[1].x} ${pTop[1].y} Z`}
+                fill="#2E333A"
+                stroke="#6B7785"
+                strokeWidth={0.8}
+              />
             </G>
           ),
         });
-      });
+      }
     });
 
-    // Openings
-    openings.forEach((op) => {
-      const pos = toIsometric(op.x, op.y);
-      elementsToRender.push({
-        depth: pos.depth,
-        element: op.type === "door" ? (
-          <Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={4} fill="#D9A443" stroke="#94A3B8" strokeWidth={0.5} />
-        ) : (
-          <Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={4} fill="#3B82F6" stroke="#94A3B8" strokeWidth={0.5} />
-        ),
-      });
-    });
-
-    // Furniture
-    furniture.forEach((f) => {
-      const w = f.width;
-      const h = f.height;
-      const zh = 16;
-
-      const midX = f.x + w / 2;
-      const midY = f.y + h / 2;
-      const midProj = toIsometric(midX, midY);
-
-      const b1 = toIsometric(f.x, f.y);
-      const b2 = toIsometric(f.x + w, f.y);
-      const b3 = toIsometric(f.x + w, f.y + h);
-      const b4 = toIsometric(f.x, f.y + h);
-
-      const t1 = toIsometric(f.x, f.y, zh);
-      const t2 = toIsometric(f.x + w, f.y, zh);
-      const t3 = toIsometric(f.x + w, f.y + h, zh);
-      const t4 = toIsometric(f.x, f.y + h, zh);
-
-      elementsToRender.push({
-        depth: midProj.depth,
-        element: (
-          <G key={`iso_furn_${f.id}`}>
-            <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill="#CBD5E1" stroke="#64748B" strokeWidth={0.5} />
-            <Path d={`M ${b2.x} ${b2.y} L ${b3.x} ${b3.y} L ${t3.x} ${t3.y} L ${t2.x} ${t2.y} Z`} fill="#94A3B8" stroke="#64748B" strokeWidth={0.5} />
-            <Path d={`M ${t1.x} ${t1.y} L ${t2.x} ${t2.y} L ${t3.x} ${t3.y} L ${t4.x} ${t4.y} Z`} fill="#E2E8F0" stroke="#64748B" strokeWidth={0.5} />
-          </G>
-        ),
-      });
-    });
-
-    // Sort by depth (painter's algorithm)
-    elementsToRender.sort((a, b) => a.depth - b.depth);
-    elementsToRender.forEach((item) => list.push(item.element));
-    return list;
+    // Sort from back to front (Painter's algorithm)
+    renderQueue.sort((a, b) => b.depth - a.depth);
+    return renderQueue.map(item => item.element);
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* Header bar */}
+      {/* CAD File title bar */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back-outline" size={24} color={COLORS.white} />
+          <Ionicons name="arrow-back-outline" size={22} color={COLORS.white} />
         </TouchableOpacity>
         <TextInput
           style={styles.projectInput}
           value={projectName}
           onChangeText={setProjectName}
-          placeholder="Blueprint Title"
-          placeholderTextColor="#94A3B8"
+          placeholder="CAD Layout Title"
+          placeholderTextColor="#64748B"
         />
-        <TouchableOpacity style={styles.infoBtn} onPress={() => setViewMode("info")}>
-          <Ionicons name="information-circle-outline" size={24} color={COLORS.white} />
+        <TouchableOpacity style={styles.clearBtn} onPress={clearCanvas}>
+          <Ionicons name="refresh-outline" size={20} color={COLORS.danger} />
         </TouchableOpacity>
       </View>
 
       {/* Mode selectors */}
       <View style={styles.tabBar}>
-        <TouchableOpacity style={[styles.tabBtn, viewMode === "2d" && styles.tabActive]} onPress={() => setViewMode("2d")}>
-          <Ionicons name="map-outline" size={16} color={viewMode === "2d" ? COLORS.gold : COLORS.slate} />
-          <Text style={[styles.tabText, viewMode === "2d" && styles.tabTextActive]}>2D Editor</Text>
+        <TouchableOpacity style={[styles.tabBtn, viewMode === "2d" && styles.tabActive]} onPress={() => { setViewMode("2d"); setTool("select"); }}>
+          <Ionicons name="map-outline" size={16} color={viewMode === "2d" ? COLORS.cadSelect : COLORS.slate} />
+          <Text style={[styles.tabText, viewMode === "2d" && styles.tabTextActive]}>2D Blueprint</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.tabBtn, viewMode === "3d" && styles.tabActive]} onPress={() => setViewMode("3d")}>
-          <Ionicons name="cube-outline" size={16} color={viewMode === "3d" ? COLORS.gold : COLORS.slate} />
-          <Text style={[styles.tabText, viewMode === "3d" && styles.tabTextActive]}>3D Viewer</Text>
+          <Ionicons name="cube-outline" size={16} color={viewMode === "3d" ? COLORS.cadSelect : COLORS.slate} />
+          <Text style={[styles.tabText, viewMode === "3d" && styles.tabTextActive]}>3D Orbit</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={[styles.tabBtn, viewMode === "templates" && styles.tabActive]} onPress={() => setViewMode("templates")}>
-          <Ionicons name="file-tray-full-outline" size={16} color={viewMode === "templates" ? COLORS.gold : COLORS.slate} />
-          <Text style={[styles.tabText, viewMode === "templates" && styles.tabTextActive]}>Presets</Text>
+        <TouchableOpacity style={[styles.tabBtn, viewMode === "walkthrough" && styles.tabActive]} onPress={() => { setViewMode("walkthrough"); setCamX(20); setCamY(20); }}>
+          <Ionicons name="walk-outline" size={16} color={viewMode === "walkthrough" ? COLORS.cadSelect : COLORS.slate} />
+          <Text style={[styles.tabText, viewMode === "walkthrough" && styles.tabTextActive]}>Walkthrough</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.tabBtn, viewMode === "presets" && styles.tabActive]} onPress={() => setViewMode("presets")}>
+          <Ionicons name="file-tray-full-outline" size={16} color={viewMode === "presets" ? COLORS.cadSelect : COLORS.slate} />
+          <Text style={[styles.tabText, viewMode === "presets" && styles.tabTextActive]}>Templates</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* 2D CANVAS WORKSPACE */}
+      {/* 2D CANVAS / 3D VIEWPORT CONTAINER */}
+      <View
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={[styles.viewport, { height: viewportHeight }]}
+      >
         {viewMode === "2d" && (
-          <View style={styles.editorContainer}>
+          <Svg width={windowWidth} height={viewportHeight} style={{ backgroundColor: COLORS.cadBg }}>
+            <Defs>
+              <Pattern id="cadGrid" width={16} height={16} patternUnits="userSpaceOnUse">
+                <Path d="M 16 0 L 0 0 0 16" fill="none" stroke={COLORS.cadGrid} strokeWidth="1" />
+              </Pattern>
+            </Defs>
             
-            {/* Quick Add Presets Bar */}
-            <Text style={styles.presetHeading}>Step 1: Tap to Add Rooms</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.presetsBar}>
-              {ROOM_PRESETS.map((preset) => (
-                <TouchableOpacity key={preset.label} style={styles.presetBadge} onPress={() => addRoomPreset(preset)}>
-                  <View style={[styles.presetDot, { backgroundColor: preset.color }]} />
-                  <Text style={styles.presetLabelText}>{preset.label}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {/* Draw Grid Background */}
+            <Rect width={windowWidth} height={viewportHeight} fill="url(#cadGrid)" />
 
-            <Text style={styles.presetHeading}>Step 2: Drag Room Borders & Magnetic Snaps</Text>
-            <View style={styles.actionsBar}>
-              <Text style={styles.tipText}>
-                {selectedItem
-                  ? "Drag room to move, or drag red arrow handles to resize walls."
-                  : "Tap a room block to edit dimensions or rename."}
-              </Text>
-              <TouchableOpacity style={styles.clearBtn} onPress={clearCanvas}>
-                <Ionicons name="trash-outline" size={14} color={COLORS.white} />
-                <Text style={styles.clearBtnText}>Reset</Text>
-              </TouchableOpacity>
-            </View>
+            {/* 1. Floor Slabs */}
+            {rooms.map((room) => {
+              const isSelected = selectedItem?.type === "room" && selectedItem?.id === room.id;
+              const rWidthFt = room.width / PIXELS_PER_FOOT;
+              const rHeightFt = room.height / PIXELS_PER_FOOT;
 
-            {/* Drawing Canvas */}
-            <View style={styles.canvasContainer}>
-              <View
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                style={{ width: CANVAS_SIZE, height: CANVAS_SIZE }}
-              >
-                <Svg width={CANVAS_SIZE} height={CANVAS_SIZE}>
-                  <Defs>
-                    <Pattern id="grid" width={GRID_SIZE} height={GRID_SIZE} patternUnits="userSpaceOnUse">
-                      <Path d={`M ${GRID_SIZE} 0 L 0 0 0 ${GRID_SIZE}`} fill="none" stroke="#F1F5F9" strokeWidth="1" />
-                    </Pattern>
-                  </Defs>
+              return (
+                <G key={room.id}>
+                  <Rect
+                    x={room.x}
+                    y={room.y}
+                    width={room.width}
+                    height={room.height}
+                    fill={isSelected ? "rgba(255, 159, 28, 0.05)" : "transparent"}
+                    stroke={isSelected ? COLORS.cadSelect : COLORS.cadWallBorder}
+                    strokeWidth={isSelected ? 2.5 : 1.5}
+                  />
+                  {/* Room Label & Area Callout */}
+                  <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 - 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill="#ECEFF1">
+                    {room.label}
+                  </SvgText>
+                  <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 + 10} textAnchor="middle" fontSize={9} fill={COLORS.cadDimension}>
+                    {rWidthFt}' x {rHeightFt}' ({getRoomArea(room)} sqft)
+                  </SvgText>
 
-                  <Rect width={CANVAS_SIZE} height={CANVAS_SIZE} fill="url(#grid)" />
-                  <Rect width={CANVAS_SIZE} height={CANVAS_SIZE} fill="none" stroke="#E2E8F0" strokeWidth={1} />
+                  {/* Wall resizing knobs */}
+                  {isSelected && (
+                    <G>
+                      <Circle cx={room.x + room.width} cy={room.y + room.height / 2} r={7} fill={COLORS.cadSelect} />
+                      <Circle cx={room.x} cy={room.y + room.height / 2} r={7} fill={COLORS.cadSelect} />
+                      <Circle cx={room.x + room.width / 2} cy={room.y + room.height} r={7} fill={COLORS.cadSelect} />
+                      <Circle cx={room.x + room.width / 2} cy={room.y} r={7} fill={COLORS.cadSelect} />
+                    </G>
+                  )}
+                </G>
+              );
+            })}
 
-                  {/* 1. Render Room Blocks */}
-                  {rooms.map((room) => {
-                    const isSelected = selectedItem?.type === "room" && selectedItem?.id === room.id;
-                    const rWidthFt = room.width / PIXELS_PER_FOOT;
-                    const rHeightFt = room.height / PIXELS_PER_FOOT;
+            {/* 2. Custom Drawn Walls */}
+            {customWalls.map((w) => {
+              const isSelected = selectedItem?.type === "wall" && selectedItem?.id === w.id;
+              const dx = w.x2 - w.x1;
+              const dy = w.y2 - w.y1;
+              const lengthFt = (Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_FOOT).toFixed(1);
+              
+              // Angle for writing text parallel to wall segment
+              const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+              const midX = (w.x1 + w.x2) / 2;
+              const midY = (w.y1 + w.y2) / 2;
 
-                    return (
-                      <G key={room.id}>
-                        {/* Floor Slab Rect */}
-                        <Rect
-                          x={room.x}
-                          y={room.y}
-                          width={room.width}
-                          height={room.height}
-                          fill={room.color}
-                          stroke={isSelected ? COLORS.gold : COLORS.navy}
-                          strokeWidth={isSelected ? 4 : 3}
-                        />
-                        {/* Labels & Area */}
-                        <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 - 5} textAnchor="middle" fontSize={10} fontWeight="bold" fill={COLORS.navy}>
-                          {room.label}
-                        </SvgText>
-                        
-                        {/* Dimension labels displayed directly on borders */}
-                        <SvgText x={room.x + room.width / 2} y={room.y + 12} textAnchor="middle" fontSize={9} fill={COLORS.slate} fontWeight="500">
-                          {rWidthFt} ft
-                        </SvgText>
-                        <SvgText x={room.x + 8} y={room.y + room.height / 2 + 3} textAnchor="start" fontSize={9} fill={COLORS.slate} fontWeight="500">
-                          {rHeightFt} ft
-                        </SvgText>
+              return (
+                <G key={w.id}>
+                  {/* AutoCAD Wall joins: strokeLinecap="round" resolves wall corners beautifully */}
+                  <Line
+                    x1={w.x1}
+                    y1={w.y1}
+                    x2={w.x2}
+                    y2={w.y2}
+                    stroke={isSelected ? COLORS.cadSelect : COLORS.cadWall}
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                  />
+                  {/* Dimension Text overlay */}
+                  <G transform={`translate(${midX}, ${midY - 8}) rotate(${angle}, 0, 0)`}>
+                    <SvgText textAnchor="middle" fontSize={8} fontWeight="bold" fill={COLORS.cadDimension}>
+                      {lengthFt}' ft
+                    </SvgText>
+                  </G>
+                </G>
+              );
+            })}
 
-                        {/* Interactive Drag Handles on all 4 walls (shown only when selected) */}
-                        {isSelected && (
-                          <G>
-                            {/* Right border handle */}
-                            <Circle cx={room.x + room.width} cy={room.y + room.height / 2} r={7} fill="#EF4444" />
-                            {/* Left border handle */}
-                            <Circle cx={room.x} cy={room.y + room.height / 2} r={7} fill="#EF4444" />
-                            {/* Bottom border handle */}
-                            <Circle cx={room.x + room.width / 2} cy={room.y + room.height} r={7} fill="#EF4444" />
-                            {/* Top border handle */}
-                            <Circle cx={room.x + room.width / 2} cy={room.y} r={7} fill="#EF4444" />
-                          </G>
-                        )}
-                      </G>
-                    );
-                  })}
+            {/* 3. Snapped Windows and Doors */}
+            {openings.map((op) => {
+              const isSelected = selectedItem?.type === "opening" && selectedItem?.id === op.id;
+              return (
+                <G key={op.id} transform={`rotate(${op.rotation}, ${op.x}, ${op.y})`}>
+                  {op.type === "door" ? (
+                    <G>
+                      <Path d={`M ${op.x} ${op.y} A ${op.width} ${op.width} 0 0 1 ${op.x + op.width} ${op.y + op.width}`} fill="none" stroke={COLORS.cadDoor} strokeWidth={1} strokeDasharray="2,2" />
+                      <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.cadSelect : COLORS.cadDoor} strokeWidth={3.5} />
+                      <Circle cx={op.x} cy={op.y} r={4} fill={COLORS.cadDoor} />
+                    </G>
+                  ) : (
+                    <Rect x={op.x - op.width / 2} y={op.y - 4} width={op.width} height={8} fill="#1E293B" stroke={isSelected ? COLORS.cadSelect : COLORS.cadWindow} strokeWidth={2} />
+                  )}
+                </G>
+              );
+            })}
 
-                  {/* 2. Render Openings (Doors / Windows) snapped magnetically */}
-                  {openings.map((op) => {
-                    const isSelected = selectedItem?.type === "opening" && selectedItem?.id === op.id;
-                    return (
-                      <G key={op.id} transform={`rotate(${op.rotation}, ${op.x}, ${op.y})`}>
-                        {op.type === "door" ? (
-                          <G>
-                            <Path d={`M ${op.x} ${op.y} A ${op.width} ${op.width} 0 0 1 ${op.x + op.width} ${op.y + op.width}`} fill="none" stroke={isSelected ? COLORS.gold : COLORS.gold} strokeWidth={1} strokeDasharray="2,2" />
-                            <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.gold : "#CD8B23"} strokeWidth={3.5} />
-                            <Circle cx={op.x} cy={op.y} r={4} fill={COLORS.gold} />
-                          </G>
-                        ) : (
-                          <Rect x={op.x - op.width / 2} y={op.y - 4} width={op.width} height={8} fill="#FFFFFF" stroke={isSelected ? COLORS.gold : COLORS.accent} strokeWidth={2} />
-                        )}
-                      </G>
-                    );
-                  })}
+            {/* 4. Furniture Elements */}
+            {furniture.map((f) => {
+              const isSelected = selectedItem?.type === "furniture" && selectedItem?.id === f.id;
+              return (
+                <G key={f.id} transform={`rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})`}>
+                  <Rect x={f.x} y={f.y} width={f.width} height={f.height} rx={2} fill="#27303E" stroke={isSelected ? COLORS.cadSelect : "#5A677C"} strokeWidth={1.2} />
+                  <SvgText x={f.x + f.width / 2} y={f.y + f.height / 2 + 3} textAnchor="middle" fontSize={8} fill="#94A3B8" fontWeight="bold">
+                    {f.type.toUpperCase()}
+                  </SvgText>
+                </G>
+              );
+            })}
 
-                  {/* 3. Render Furniture */}
-                  {furniture.map((f) => {
-                    const isSelected = selectedItem?.type === "furniture" && selectedItem?.id === f.id;
-                    return (
-                      <G key={f.id} transform={`rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})`}>
-                        <Rect x={f.x} y={f.y} width={f.width} height={f.height} rx={2} fill="#E2E8F0" stroke={isSelected ? COLORS.gold : "#94A3B8"} strokeWidth={1.5} />
-                        <SvgText x={f.x + f.width / 2} y={f.y + f.height / 2 + 3} textAnchor="middle" fontSize={7} fill={COLORS.slate} fontWeight="500">
-                          {f.type.toUpperCase()}
-                        </SvgText>
-                      </G>
-                    );
-                  })}
-                </Svg>
+            {/* Live Free Hand Drawing Preview */}
+            {tool === "draw_wall" && drawingWall && (
+              <G>
+                <Line
+                  x1={drawingWall.x1}
+                  y1={drawingWall.y1}
+                  x2={drawingWall.x2}
+                  y2={drawingWall.y2}
+                  stroke={COLORS.cadDimension}
+                  strokeWidth={6}
+                  strokeDasharray="4,4"
+                  strokeLinecap="round"
+                />
+                {/* Real-time dimension marker label */}
+                <SvgText
+                  x={(drawingWall.x1 + drawingWall.x2) / 2}
+                  y={(drawingWall.y1 + drawingWall.y2) / 2 - 12}
+                  textAnchor="middle"
+                  fontSize={10}
+                  fontWeight="bold"
+                  fill={COLORS.cadDimension}
+                >
+                  {(Math.sqrt(Math.pow(drawingWall.x2 - drawingWall.x1, 2) + Math.pow(drawingWall.y2 - drawingWall.y1, 2)) / PIXELS_PER_FOOT).toFixed(1)}' ft
+                </SvgText>
+              </G>
+            )}
+
+            {/* Object snap alignment marker */}
+            {snapIndicator && (
+              <G>
+                <Rect x={snapIndicator.x - 6} y={snapIndicator.y - 6} width={12} height={12} fill="none" stroke="#22C55E" strokeWidth={2} />
+                <Circle cx={snapIndicator.x} cy={snapIndicator.y} r={2} fill="#22C55E" />
+              </G>
+            )}
+          </Svg>
+        )}
+
+        {/* 3D ORBIT VIEWPORT (Drag finger to rotate / pinch to zoom) */}
+        {viewMode === "3d" && (
+          <Svg width={windowWidth} height={viewportHeight} style={{ backgroundColor: "#0F1215" }}>
+            {render3DLayout()}
+            
+            {/* Viewport indicators */}
+            <G transform={`translate(20, ${viewportHeight - 20})`}>
+              <SvgText fontSize={9} fill={COLORS.slate} fontWeight="bold">ORBIT: DRAG FINGER TO SPIN</SvgText>
+            </G>
+          </Svg>
+        )}
+
+        {/* Walkthrough view */}
+        {viewMode === "walkthrough" && (
+          <Svg width={windowWidth} height={viewportHeight} style={{ backgroundColor: "#0F1215" }}>
+            {render3DLayout()}
+
+            {/* On-screen virtual joystick HUD indicators */}
+            <Line x1={windowWidth / 2} y1={0} x2={windowWidth / 2} y2={viewportHeight} stroke="rgba(255,255,255,0.03)" strokeWidth={1} />
+            <G transform={`translate(24, 24)`}>
+              <SvgText fontSize={9} fill={COLORS.cadDimension} fontWeight="bold">
+                CAM POS: {camX.toFixed(1)}', {camY.toFixed(1)}'
+              </SvgText>
+            </G>
+            <G transform={`translate(20, ${viewportHeight - 20})`}>
+              <SvgText fontSize={8} fill="rgba(255,255,255,0.25)" fontWeight="bold">LEFT SIDE: DRAG TO WALK</SvgText>
+            </G>
+            <G transform={`translate(${windowWidth - 120}, ${viewportHeight - 20})`}>
+              <SvgText fontSize={8} fill="rgba(255,255,255,0.25)" fontWeight="bold">RIGHT SIDE: DRAG TO LOOK</SvgText>
+            </G>
+          </Svg>
+        )}
+
+        {/* Template selector overlay view */}
+        {viewMode === "presets" && (
+          <View style={styles.presetsOverlay}>
+            <Text style={styles.presetsHeading}>Select AutoCAD Template</Text>
+            <TouchableOpacity style={styles.presetCard} onPress={() => loadPresetTemplate("studio")}>
+              <Ionicons name="home-outline" size={24} color={COLORS.cadSelect} />
+              <View style={styles.presetCardBody}>
+                <Text style={styles.presetTitle}>Studio Room Layout (320 sqft)</Text>
+                <Text style={styles.presetDesc}>Compact open plan: 20' x 16' including bathroom.</Text>
               </View>
-            </View>
+            </TouchableOpacity>
 
-            {/* Quick Openings & Furniture Tool palette */}
-            <Text style={styles.presetHeading}>Step 3: Drop Openings & Furniture</Text>
-            <View style={styles.quickAddBar}>
-              <TouchableOpacity style={styles.quickAddBtn} onPress={() => addOpening("door")}>
-                <Ionicons name="open-outline" size={18} color={COLORS.navy} />
-                <Text style={styles.quickAddBtnText}>+ Door</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickAddBtn} onPress={() => addOpening("window")}>
-                <Ionicons name="square-outline" size={18} color={COLORS.navy} />
-                <Text style={styles.quickAddBtnText}>+ Window</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickAddBtn} onPress={() => addFurniture("bed")}>
-                <Ionicons name="bed-outline" size={18} color={COLORS.navy} />
-                <Text style={styles.quickAddBtnText}>+ Bed</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.quickAddBtn} onPress={() => addFurniture("sofa")}>
-                <Ionicons name="easel-outline" size={18} color={COLORS.navy} />
-                <Text style={styles.quickAddBtnText}>+ Sofa</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity style={styles.presetCard} onPress={() => loadPresetTemplate("1bhk")}>
+              <Ionicons name="business-outline" size={24} color={COLORS.cadSelect} />
+              <View style={styles.presetCardBody}>
+                <Text style={styles.presetTitle}>1 BHK Apartment Layout (480 sqft)</Text>
+                <Text style={styles.presetDesc}>Bedroom, Hall, Kitchen, Bathroom. 30' x 16'.</Text>
+              </View>
+            </TouchableOpacity>
 
-            {/* Editing attributes panel */}
-            {selectedItem && (
-              <View style={styles.editPanel}>
-                <View style={styles.panelHeader}>
-                  <Text style={styles.panelTitle}>Modify Selected {selectedItem.type.toUpperCase()}</Text>
-                  <TouchableOpacity onPress={() => setSelectedItem(null)}>
-                    <Ionicons name="close-circle-outline" size={20} color={COLORS.slate} />
-                  </TouchableOpacity>
+            <TouchableOpacity style={styles.presetCard} onPress={() => loadPresetTemplate("2bhk")}>
+              <Ionicons name="images-outline" size={24} color={COLORS.cadSelect} />
+              <View style={styles.presetCardBody}>
+                <Text style={styles.presetTitle}>2 BHK Standard layout (800 sqft)</Text>
+                <Text style={styles.presetDesc}>2 Bedroom, Living, Kitchen, and Toilet. 40' x 20'.</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      {/* FLOATING ACTION TOOLBAR OVERLAY */}
+      {viewMode === "2d" && (
+        <View style={styles.toolbarOverlay}>
+          <TouchableOpacity
+            style={[styles.toolBtn, tool === "select" && styles.toolBtnActive]}
+            onPress={() => setTool("select")}
+          >
+            <Ionicons name="hand-right-outline" size={20} color={COLORS.white} />
+            <Text style={styles.toolBtnText}>Select</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.toolBtn, tool === "draw_wall" && styles.toolBtnActive]}
+            onPress={() => { setTool("draw_wall"); setSelectedItem(null); }}
+          >
+            <Ionicons name="brush-outline" size={20} color={COLORS.white} />
+            <Text style={styles.toolBtnText}>Draw Wall</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.toolBtn} onPress={() => setCustomRoomModal(true)}>
+            <Ionicons name="add-circle-outline" size={20} color={COLORS.white} />
+            <Text style={styles.toolBtnText}>Add Room</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("bed")}>
+            <Ionicons name="bed-outline" size={20} color={COLORS.white} />
+            <Text style={styles.toolBtnText}>+ Bed</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("sofa")}>
+            <Ionicons name="easel-outline" size={20} color={COLORS.white} />
+            <Text style={styles.toolBtnText}>+ Sofa</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* DETAILED PROPERTIES MODIFICATION BOTTOM SHEET */}
+      {selectedItem && viewMode === "2d" && (
+        <View style={styles.bottomSheet}>
+          <View style={styles.sheetHeader}>
+            <Text style={styles.sheetTitle}>Modify Selected {selectedItem.type.toUpperCase()}</Text>
+            <TouchableOpacity onPress={() => setSelectedItem(null)}>
+              <Ionicons name="close-circle-outline" size={22} color={COLORS.slate} />
+            </TouchableOpacity>
+          </View>
+
+          {selectedItem.type === "room" && (() => {
+            const room = rooms.find(r => r.id === selectedItem.id);
+            if (!room) return null;
+            return (
+              <ScrollView style={styles.sheetScroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.sheetLabel}>Room Dimensions:</Text>
+                <View style={styles.adjustRow}>
+                  <Text style={styles.adjustText}>Width: {room.width / PIXELS_PER_FOOT} ft</Text>
+                  <View style={styles.adjustBtnGroup}>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomWidth(room.id, -1)}>
+                      <Text style={styles.adjustBtnText}>- 1'</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomWidth(room.id, 1)}>
+                      <Text style={styles.adjustBtnText}>+ 1'</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                <View style={styles.adjustRow}>
+                  <Text style={styles.adjustText}>Length: {room.height / PIXELS_PER_FOOT} ft</Text>
+                  <View style={styles.adjustBtnGroup}>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomHeight(room.id, -1)}>
+                      <Text style={styles.adjustBtnText}>- 1'</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomHeight(room.id, 1)}>
+                      <Text style={styles.adjustBtnText}>+ 1'</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                {selectedItem.type === "room" && (() => {
-                  const room = rooms.find((r) => r.id === selectedItem.id);
-                  if (!room) return null;
-                  return (
-                    <View style={{ gap: 10 }}>
-                      {/* Adjust Size Incremental Buttons */}
-                      <Text style={styles.label}>Adjust Room Size:</Text>
-                      <View style={styles.dimensionAdjustGrid}>
-                        <View style={styles.adjustRow}>
-                          <Text style={styles.adjustLabel}>Width: {room.width / PIXELS_PER_FOOT} ft</Text>
-                          <View style={styles.adjustBtnGroup}>
-                            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomWidth(room.id, -1)}>
-                              <Text style={styles.adjustBtnText}>- 1 ft</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomWidth(room.id, 1)}>
-                              <Text style={styles.adjustBtnText}>+ 1 ft</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <View style={styles.adjustRow}>
-                          <Text style={styles.adjustLabel}>Height: {room.height / PIXELS_PER_FOOT} ft</Text>
-                          <View style={styles.adjustBtnGroup}>
-                            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomHeight(room.id, -1)}>
-                              <Text style={styles.adjustBtnText}>- 1 ft</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustRoomHeight(room.id, 1)}>
-                              <Text style={styles.adjustBtnText}>+ 1 ft</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Precise input button */}
-                      <TouchableOpacity style={styles.primaryActionBtn} onPress={openDimModal}>
-                        <Ionicons name="resize-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
-                        <Text style={styles.primaryActionBtnText}>Input Exact Dimensions (ft)</Text>
-                      </TouchableOpacity>
-
-                      {/* Place Snapped Opening on Wall */}
-                      <Text style={styles.label}>Add Opening to Selected Room Wall:</Text>
-                      <View style={styles.wallButtonsGrid}>
-                        <View style={styles.wallButtonsRow}>
-                          <Text style={styles.wallLabel}>Top Wall</Text>
-                          <View style={styles.wallBtnGroup}>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "top", "door")}>
-                              <Ionicons name="open-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Door</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "top", "window")}>
-                              <Ionicons name="square-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Window</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <View style={styles.wallButtonsRow}>
-                          <Text style={styles.wallLabel}>Bottom Wall</Text>
-                          <View style={styles.wallBtnGroup}>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "bottom", "door")}>
-                              <Ionicons name="open-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Door</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "bottom", "window")}>
-                              <Ionicons name="square-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Window</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <View style={styles.wallButtonsRow}>
-                          <Text style={styles.wallLabel}>Left Wall</Text>
-                          <View style={styles.wallBtnGroup}>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "left", "door")}>
-                              <Ionicons name="open-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Door</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "left", "window")}>
-                              <Ionicons name="square-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Window</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <View style={styles.wallButtonsRow}>
-                          <Text style={styles.wallLabel}>Right Wall</Text>
-                          <View style={styles.wallBtnGroup}>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "right", "door")}>
-                              <Ionicons name="open-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Door</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={styles.wallBtn} onPress={() => addOpeningToWall(room, "right", "window")}>
-                              <Ionicons name="square-outline" size={12} color={COLORS.navy} />
-                              <Text style={styles.wallBtnText}>+ Window</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                      </View>
-
-                      {/* Room labeling presets */}
-                      <Text style={styles.label}>Rename Room Label:</Text>
-                      <View style={styles.chipGrid}>
-                        {["Living Room", "Master Bed", "Bedroom", "Kids Bed", "Kitchen", "Bathroom", "Dining", "Toilet", "Hall"].map((l) => (
-                          <TouchableOpacity key={l} style={styles.chip} onPress={() => changeSelectedRoomLabel(l)}>
-                            <Text style={styles.chipText}>{l}</Text>
-                          </TouchableOpacity>
-                        ))}
+                {/* Wall Opening Placements */}
+                <Text style={styles.sheetLabel}>Add Snap Openings on Walls:</Text>
+                <View style={styles.wallGrid}>
+                  {["top", "bottom", "left", "right"].map((side) => (
+                    <View key={side} style={styles.wallRow}>
+                      <Text style={styles.wallName}>{side.toUpperCase()}</Text>
+                      <View style={styles.wallBtns}>
+                        <TouchableOpacity style={styles.wallInsertBtn} onPress={() => addOpeningToWall(room, side as any, "door")}>
+                          <Text style={styles.wallInsertText}>+ Door</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.wallInsertBtn} onPress={() => addOpeningToWall(room, side as any, "window")}>
+                          <Text style={styles.wallInsertText}>+ Window</Text>
+                        </TouchableOpacity>
                       </View>
                     </View>
-                  );
-                })()}
+                  ))}
+                </View>
 
-                {selectedItem.type === "opening" && (() => {
-                  const op = openings.find((o) => o.id === selectedItem.id);
-                  if (!op) return null;
-                  const parentInfo = getOpeningParentWall(op);
-                  return (
-                    <View style={{ gap: 10 }}>
-                      <TouchableOpacity style={styles.rotateBtn} onPress={rotateElement}>
-                        <Ionicons name="refresh-outline" size={16} color={COLORS.navy} style={{ marginRight: 6 }} />
-                        <Text style={styles.rotateBtnText}>Rotate Element</Text>
-                      </TouchableOpacity>
-
-                      {parentInfo ? (
-                        <View style={styles.sliderContainer}>
-                          <Text style={styles.label}>Slide Position Along {parentInfo.wall.toUpperCase()} Wall:</Text>
-                          {parentInfo.wall === "top" || parentInfo.wall === "bottom" ? (
-                            <View style={styles.sliderRow}>
-                              <Text style={styles.sliderSideLabel}>Left</Text>
-                              <Slider
-                                style={styles.sliderComponent}
-                                minimumValue={parentInfo.room.x + 8}
-                                maximumValue={parentInfo.room.x + parentInfo.room.width - 8}
-                                step={4}
-                                value={op.x}
-                                onValueChange={(val) => updateOpeningPosition(op.id, val, op.y)}
-                                minimumTrackTintColor={COLORS.gold}
-                                maximumTrackTintColor={COLORS.slateLight}
-                                thumbTintColor={COLORS.gold}
-                              />
-                              <Text style={styles.sliderSideLabel}>Right</Text>
-                            </View>
-                          ) : (
-                            <View style={styles.sliderRow}>
-                              <Text style={styles.sliderSideLabel}>Top</Text>
-                              <Slider
-                                style={styles.sliderComponent}
-                                minimumValue={parentInfo.room.y + 8}
-                                maximumValue={parentInfo.room.y + parentInfo.room.height - 8}
-                                step={4}
-                                value={op.y}
-                                onValueChange={(val) => updateOpeningPosition(op.id, op.x, val)}
-                                minimumTrackTintColor={COLORS.gold}
-                                maximumTrackTintColor={COLORS.slateLight}
-                                thumbTintColor={COLORS.gold}
-                              />
-                              <Text style={styles.sliderSideLabel}>Bottom</Text>
-                            </View>
-                          )}
-                        </View>
-                      ) : (
-                        <Text style={styles.tipText}>Move window/door onto a room wall to enable wall sliding positioner.</Text>
-                      )}
-                    </View>
-                  );
-                })()}
-
-                {selectedItem.type === "furniture" && (
-                  <TouchableOpacity style={styles.rotateBtn} onPress={rotateElement}>
-                    <Ionicons name="refresh-outline" size={16} color={COLORS.navy} style={{ marginRight: 6 }} />
-                    <Text style={styles.rotateBtnText}>Rotate Element</Text>
-                  </TouchableOpacity>
-                )}
+                {/* Label Selection Chips */}
+                <Text style={styles.sheetLabel}>Rename Room Space:</Text>
+                <View style={styles.chipGrid}>
+                  {ROOM_NAME_PRESETS.map((name) => (
+                    <TouchableOpacity key={name} style={styles.chip} onPress={() => changeRoomLabel(name)}>
+                      <Text style={styles.chipText}>{name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
                 <TouchableOpacity style={styles.deleteBtn} onPress={deleteElement}>
                   <Ionicons name="trash-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
-                  <Text style={styles.deleteBtnText}>Remove Element</Text>
+                  <Text style={styles.deleteBtnText}>Remove Room Space</Text>
                 </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
+              </ScrollView>
+            );
+          })()}
 
-        {/* 3D VIEWER WORKSPACE */}
-        {viewMode === "3d" && (
-          <View style={styles.viewer3DContainer}>
-            <View style={styles.infoCard3D}>
-              <Ionicons name="sparkles" size={18} color={COLORS.gold} />
-              <Text style={styles.infoCard3DText}>
-                3D Isometric Extrusion representation. Rotate, tilt, and zoom to inspect model spacing.
-              </Text>
-            </View>
-
-            <View style={styles.canvasContainer}>
-              <Svg width={CANVAS_SIZE} height={CANVAS_SIZE} style={{ backgroundColor: "#F1F5F9", borderRadius: 12 }}>
-                {renderIsometricScene()}
-              </Svg>
-            </View>
-
-            {/* Orbit Controls */}
-            <View style={styles.orbitControlsContainer}>
-              <Text style={styles.controlSectionTitle}>3D Orbit & Zoom Controls</Text>
-              
-              <View style={styles.controlRow}>
-                <View style={styles.controlGroup}>
-                  <Text style={styles.controlLabel}>Rotate (Z-Axis)</Text>
-                  <View style={styles.buttonGroup}>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setRotationAngle((prev) => (prev - 15 + 360) % 360)}>
-                      <Ionicons name="arrow-undo-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
-                    <Text style={styles.controlValueText}>{rotationAngle}°</Text>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setRotationAngle((prev) => (prev + 15) % 360)}>
-                      <Ionicons name="arrow-redo-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
-                  </View>
+          {selectedItem.type === "opening" && (() => {
+            const op = openings.find(o => o.id === selectedItem.id);
+            if (!op) return null;
+            const parentInfo = getOpeningParentWall(op);
+            return (
+              <View style={{ gap: 12 }}>
+                <View style={styles.adjustRow}>
+                  <TouchableOpacity style={styles.actionBtn} onPress={rotateElement}>
+                    <Ionicons name="refresh-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.actionBtnText}>Rotate Open Gaze</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.danger }]} onPress={deleteElement}>
+                    <Ionicons name="trash-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.actionBtnText}>Remove</Text>
+                  </TouchableOpacity>
                 </View>
 
-                <View style={styles.controlGroup}>
-                  <Text style={styles.controlLabel}>Camera Tilt</Text>
-                  <View style={styles.buttonGroup}>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setTiltAngle((prev) => Math.max(15, prev - 5))}>
-                      <Ionicons name="trending-down-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
-                    <Text style={styles.controlValueText}>{tiltAngle}°</Text>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setTiltAngle((prev) => Math.min(60, prev + 5))}>
-                      <Ionicons name="trending-up-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
+                {parentInfo ? (
+                  <View style={styles.sliderBox}>
+                    <Text style={styles.sheetLabel}>Wall Slider Positioner:</Text>
+                    {parentInfo.wall === "top" || parentInfo.wall === "bottom" ? (
+                      <View style={styles.sliderRow}>
+                        <Text style={styles.sliderLabel}>Left</Text>
+                        <Slider
+                          style={styles.slider}
+                          minimumValue={parentInfo.room.x + 8}
+                          maximumValue={parentInfo.room.x + parentInfo.room.width - 8}
+                          step={4}
+                          value={op.x}
+                          onValueChange={(val) => updateOpeningPosition(op.id, val, op.y)}
+                          minimumTrackTintColor={COLORS.cadSelect}
+                          maximumTrackTintColor="#222"
+                          thumbTintColor={COLORS.cadSelect}
+                        />
+                        <Text style={styles.sliderLabel}>Right</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.sliderRow}>
+                        <Text style={styles.sliderLabel}>Top</Text>
+                        <Slider
+                          style={styles.slider}
+                          minimumValue={parentInfo.room.y + 8}
+                          maximumValue={parentInfo.room.y + parentInfo.room.height - 8}
+                          step={4}
+                          value={op.y}
+                          onValueChange={(val) => updateOpeningPosition(op.id, op.x, val)}
+                          minimumTrackTintColor={COLORS.cadSelect}
+                          maximumTrackTintColor="#222"
+                          thumbTintColor={COLORS.cadSelect}
+                        />
+                        <Text style={styles.sliderLabel}>Bottom</Text>
+                      </View>
+                    )}
                   </View>
-                </View>
+                ) : (
+                  <Text style={styles.tipText}>Drag window/door to snap onto a room border first.</Text>
+                )}
               </View>
+            );
+          })()}
 
-              <View style={styles.controlRow}>
-                <View style={styles.controlGroup}>
-                  <Text style={styles.controlLabel}>Zoom / Scale</Text>
-                  <View style={styles.buttonGroup}>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomScale((prev) => Math.max(0.3, prev - 0.05))}>
-                      <Ionicons name="remove-circle-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
-                    <Text style={styles.controlValueText}>{Math.round(zoomScale * 100)}%</Text>
-                    <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomScale((prev) => Math.min(1.2, prev + 0.05))}>
-                      <Ionicons name="add-circle-outline" size={16} color={COLORS.navy} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.reset3DBtn} onPress={() => { setRotationAngle(45); setTiltAngle(30); setZoomScale(0.65); }}>
-                  <Ionicons name="refresh-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
-                  <Text style={styles.reset3DBtnText}>Reset Camera</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        )}
-
-        {/* TEMPLATES LOADING */}
-        {viewMode === "templates" && (
-          <View style={styles.templatesContainer}>
-            <Text style={styles.cardTitle}>Load Predefined Blueprints</Text>
-            
-            <TouchableOpacity style={styles.templateCard} onPress={() => loadPresetTemplate("studio")}>
-              <View style={styles.templateIcon}>
-                <Ionicons name="home-outline" size={24} color={COLORS.gold} />
-              </View>
-              <View style={styles.templateContent}>
-                <Text style={styles.templateTitle}>1 Room Studio Layout (320 sq ft)</Text>
-                <Text style={styles.templateDesc}>Compact modern studio featuring 1 bathroom, 1 kitchenette, and open bedroom area.</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.templateCard} onPress={() => loadPresetTemplate("1bhk")}>
-              <View style={styles.templateIcon}>
-                <Ionicons name="business-outline" size={24} color={COLORS.gold} />
-              </View>
-              <View style={styles.templateContent}>
-                <Text style={styles.templateTitle}>Standard 1 BHK Blueprint (450 sq ft)</Text>
-                <Text style={styles.templateDesc}>Classic 1 Bedroom, 1 Hall, 1 Kitchen, and 1 toilet layout ideal for standard plots.</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.templateCard} onPress={() => loadPresetTemplate("2bhk")}>
-              <View style={styles.templateIcon}>
-                <Ionicons name="images-outline" size={24} color={COLORS.gold} />
-              </View>
-              <View style={styles.templateContent}>
-                <Text style={styles.templateTitle}>Standard 2 BHK Layout Plan (800 sq ft)</Text>
-                <Text style={styles.templateDesc}>Spacious 2 Bedrooms, 1 large Hall, 1 separate Kitchen, and toilet layout. Best for growing families.</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* ESTIMATOR DETAILS & COST BANNERS */}
-        <View style={styles.summarySection}>
-          <Text style={styles.sectionHeader}>Blueprint Estimation Summary</Text>
-
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Area</Text>
-              <Text style={styles.summaryVal}>{getTotalArea()} sq ft</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Carpet Rooms</Text>
-              <Text style={styles.summaryVal}>{rooms.length} Blocks</Text>
-            </View>
-
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Cost Rate (/sq ft)</Text>
-              <View style={styles.rateInputWrap}>
-                <Text style={styles.rateCurrency}>Rs. </Text>
-                <TextInput
-                  style={styles.rateInput}
-                  keyboardType="numeric"
-                  value={ratePerSqFt}
-                  onChangeText={setRatePerSqFt}
-                />
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.costBanner}>
-            <View style={styles.costLeft}>
-              <Text style={styles.costTitle}>Est. Construction Cost</Text>
-              <Text style={styles.costValue}>Rs. {getEstimatedCost().toLocaleString()}</Text>
-            </View>
-          </View>
-
-          {/* Integration buttons */}
-          <View style={styles.calcButtonsRow}>
-            <TouchableOpacity style={styles.calcIntegrationBtn} onPress={handleEstimatePress}>
-              <Ionicons name="calculator-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
-              <Text style={styles.calcIntegrationBtnText}>Estimate Cost</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.calcIntegrationBtn, { backgroundColor: COLORS.gold }]} onPress={handleMaterialEstimatePress}>
-              <Ionicons name="cube-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
-              <Text style={styles.calcIntegrationBtnText}>Material BOQ</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.exportBtn} onPress={handleExportPDF}>
-            <Ionicons name="document-text-outline" size={20} color={COLORS.navy} />
-            <Text style={styles.exportBtnText}>Export PDF Blueprint Report</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* INFO TAB DOCUMENTATION */}
-        {viewMode === "info" && (
-          <View style={styles.infoSection}>
-            <View style={styles.infoHead}>
-              <Text style={styles.infoTitle}>ASO Keyword & Blueprint Documentation</Text>
-              <TouchableOpacity onPress={() => setViewMode("2d")}>
-                <Text style={styles.closeInfoText}>Close</Text>
+          {selectedItem.type === "furniture" && (
+            <View style={styles.adjustRow}>
+              <TouchableOpacity style={styles.actionBtn} onPress={rotateElement}>
+                <Ionicons name="refresh-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+                <Text style={styles.actionBtnText}>Rotate Furniture</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, { backgroundColor: COLORS.danger }]} onPress={deleteElement}>
+                <Ionicons name="trash-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+                <Text style={styles.actionBtnText}>Remove</Text>
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.infoBodyScroll}>
-              <Text style={styles.infoP}>
-                HDE Floor Plan Creator combines a professional block-based 2D blueprint editor with a real-time isometric 3D visualizer. Designed to optimize civil calculations, material takeoff, and area estimates.
-              </Text>
-              <Text style={styles.infoSubtitle}>How it simplifies layout sketching:</Text>
-              <Text style={styles.infoLi}>• <strong>Block-Based Editing:</strong> Zero complicated wall lines. Select a pre-sized space preset (e.g. Master Bedroom, Kitchen) and drop it directly.</Text>
-              <Text style={styles.infoLi}>• <strong>Wall Drag Handles:</strong> Push or pull borders on all 4 directions to easily size rooms.</Text>
-              <Text style={styles.infoLi}>• <strong>Exact dimensions (ft):</strong> Tap the size tags to enter exact lengths manually.</Text>
-              <Text style={styles.infoLi}>• <strong>Magnetic Snap Openings:</strong> Window and door elements snap flat against the nearest room wall automatically.</Text>
-            </ScrollView>
-          </View>
-        )}
+          )}
 
-      </ScrollView>
+          {selectedItem.type === "wall" && (
+            <TouchableOpacity style={[styles.deleteBtn, { marginTop: 8 }]} onPress={deleteElement}>
+              <Ionicons name="trash-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+              <Text style={styles.deleteBtnText}>Remove Drawn Wall Line</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
 
-      {/* DIMENSION ENTRY DIALOG MODAL */}
-      <Modal animationType="fade" transparent={true} visible={dimModalVisible} onRequestClose={() => setDimModalVisible(false)}>
+      {/* INPUT DIALOG FOR CUSTOM ROOM DIMENSIONS */}
+      <Modal animationType="fade" transparent={true} visible={customRoomModal} onRequestClose={() => setCustomRoomModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Set Exact Room Dimensions</Text>
+            <Text style={styles.modalTitle}>Set Custom Area Size</Text>
             
             <View style={styles.inputGroup}>
               <Text style={styles.modalLabel}>Width (Feet):</Text>
@@ -1597,27 +1562,37 @@ export default function FloorPlanScreen({ navigation }: any) {
                 keyboardType="numeric"
                 value={inputWidthFt}
                 onChangeText={setInputWidthFt}
-                placeholder="e.g. 12"
+                placeholder="e.g. 30"
               />
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.modalLabel}>Height (Feet):</Text>
+              <Text style={styles.modalLabel}>Length / Height (Feet):</Text>
               <TextInput
                 style={styles.modalInput}
                 keyboardType="numeric"
                 value={inputHeightFt}
                 onChangeText={setInputHeightFt}
-                placeholder="e.g. 10"
+                placeholder="e.g. 40"
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={styles.modalLabel}>Space Function Label:</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={inputLabel}
+                onChangeText={setInputLabel}
+                placeholder="e.g. Living Room"
               />
             </View>
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelModalBtn} onPress={() => setDimModalVisible(false)}>
+              <TouchableOpacity style={styles.cancelModalBtn} onPress={() => setCustomRoomModal(false)}>
                 <Text style={styles.cancelModalBtnText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.saveModalBtn} onPress={saveExactDimensions}>
-                <Text style={styles.saveModalBtnText}>Apply Size</Text>
+              <TouchableOpacity style={styles.saveModalBtn} onPress={addCustomRoom}>
+                <Text style={styles.saveModalBtnText}>Drop Block</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1630,7 +1605,7 @@ export default function FloorPlanScreen({ navigation }: any) {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: COLORS.navy,
+    backgroundColor: COLORS.cadBg,
   },
   header: {
     flexDirection: "row",
@@ -1638,694 +1613,360 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: COLORS.navy,
+    backgroundColor: "#0F1215",
+    borderBottomWidth: 1,
+    borderBottomColor: "#1E2226",
   },
   backBtn: {
-    padding: 4,
+    padding: 6,
   },
   projectInput: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "bold",
     color: COLORS.white,
     marginLeft: 12,
     paddingVertical: 4,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.navyLight,
+    borderBottomColor: "#2A2E33",
   },
-  infoBtn: {
-    padding: 4,
+  clearBtn: {
+    padding: 6,
   },
   tabBar: {
     flexDirection: "row",
-    backgroundColor: COLORS.white,
+    backgroundColor: "#0F1215",
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.slateLight,
+    borderBottomColor: "#1E2226",
   },
   tabBtn: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 14,
+    paddingVertical: 12,
     borderBottomWidth: 3,
     borderBottomColor: "transparent",
   },
   tabActive: {
-    borderBottomColor: COLORS.gold,
+    borderBottomColor: COLORS.cadSelect,
   },
   tabText: {
-    fontSize: 13,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "bold",
     color: COLORS.slate,
-    marginLeft: 6,
+    marginLeft: 4,
   },
   tabTextActive: {
-    color: COLORS.gold,
+    color: COLORS.cadSelect,
   },
-  scrollContent: {
-    backgroundColor: COLORS.bg,
-    paddingBottom: 40,
+  viewport: {
+    width: "100%",
+    backgroundColor: COLORS.cadBg,
+    position: "relative",
   },
-  editorContainer: {
-    padding: 16,
-  },
-  presetHeading: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginTop: 6,
-  },
-  presetsBar: {
-    flexDirection: "row",
-    marginBottom: 16,
-  },
-  presetBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginRight: 8,
-    elevation: 1,
-  },
-  presetDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 6,
-  },
-  presetLabelText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.navy,
-  },
-  actionsBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  tipText: {
-    fontSize: 11,
-    color: COLORS.slate,
-    flex: 1,
-    marginRight: 8,
-    lineHeight: 15,
-  },
-  clearBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EF4444",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-  },
-  clearBtnText: {
-    color: COLORS.white,
-    fontSize: 11,
-    fontWeight: "bold",
-    marginLeft: 4,
-  },
-  canvasContainer: {
-    alignSelf: "center",
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    overflow: "hidden",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-    marginBottom: 16,
-  },
-  quickAddBar: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    backgroundColor: COLORS.white,
-    borderRadius: 12,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    marginBottom: 16,
-  },
-  quickAddBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.bg,
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginHorizontal: 3,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-  },
-  quickAddBtnText: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginLeft: 4,
-  },
-  editPanel: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    padding: 16,
-    marginBottom: 16,
-  },
-  panelHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.slateLight,
-    paddingBottom: 8,
-    marginBottom: 12,
-  },
-  panelTitle: {
-    fontSize: 13,
-    fontWeight: "bold",
-    color: COLORS.navy,
-  },
-  primaryActionBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.accent,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  primaryActionBtnText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  label: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.slate,
-    marginTop: 4,
-  },
-  chipGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  chip: {
-    backgroundColor: COLORS.bg,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-  },
-  chipText: {
-    fontSize: 11,
-    color: COLORS.slate,
-    fontWeight: "500",
-  },
-  rotateBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.slateLight,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  rotateBtnText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.navy,
-  },
-  deleteBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#EF4444",
-    paddingVertical: 10,
-    borderRadius: 8,
-    marginTop: 4,
-  },
-  deleteBtnText: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: COLORS.white,
-  },
-  viewer3DContainer: {
-    padding: 16,
-  },
-  infoCard3D: {
-    flexDirection: "row",
-    backgroundColor: "#D9A44315",
-    borderWidth: 1,
-    borderColor: "#D9A44330",
-    borderRadius: 12,
-    padding: 12,
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  infoCard3DText: {
-    fontSize: 11,
-    color: COLORS.gold,
-    flex: 1,
-    marginLeft: 8,
-    lineHeight: 15,
-  },
-  orbitControlsContainer: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    padding: 14,
-    marginBottom: 16,
-  },
-  controlSectionTitle: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginBottom: 10,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  controlRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    marginBottom: 10,
-    gap: 12,
-  },
-  controlGroup: {
-    flex: 1,
-  },
-  controlLabel: {
-    fontSize: 10,
-    color: COLORS.slate,
-    fontWeight: "600",
-    marginBottom: 6,
-  },
-  buttonGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.bg,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    padding: 2,
-    justifyContent: "space-between",
-  },
-  controlBtn: {
-    padding: 8,
-    borderRadius: 6,
-    backgroundColor: COLORS.white,
-    elevation: 1,
-  },
-  controlValueText: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    minWidth: 32,
-    textAlign: "center",
-  },
-  reset3DBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.navy,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  reset3DBtnText: {
-    color: COLORS.white,
-    fontSize: 11,
-    fontWeight: "bold",
-  },
-  placeholder3DNote: {
-    textAlign: "center",
-    fontSize: 10,
-    color: COLORS.slate,
-    marginTop: 10,
-  },
-  templatesContainer: {
-    padding: 16,
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginBottom: 12,
-  },
-  templateCard: {
-    flexDirection: "row",
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    alignItems: "center",
-  },
-  templateIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#D9A44310",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 16,
-  },
-  templateContent: {
-    flex: 1,
-  },
-  templateTitle: {
-    fontSize: 13,
-    fontWeight: "bold",
-    color: COLORS.navy,
-  },
-  templateDesc: {
-    fontSize: 11,
-    color: COLORS.slate,
-    marginTop: 4,
-    lineHeight: 15,
-  },
-  summarySection: {
-    backgroundColor: COLORS.white,
-    marginHorizontal: 16,
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    marginTop: 16,
-  },
-  sectionHeader: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginBottom: 12,
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-  },
-  summaryItem: {
-    flex: 1,
-    backgroundColor: COLORS.bg,
-    borderRadius: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-  },
-  summaryLabel: {
-    fontSize: 10,
-    color: COLORS.slate,
-    fontWeight: "600",
-  },
-  summaryVal: {
-    fontSize: 14,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginTop: 4,
-  },
-  rateInputWrap: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 2,
-  },
-  rateCurrency: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.navy,
-  },
-  rateInput: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    padding: 0,
-  },
-  costBanner: {
-    flexDirection: "row",
-    backgroundColor: COLORS.emerald,
-    borderRadius: 12,
-    padding: 14,
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  costLeft: {
-    flex: 1,
-  },
-  costTitle: {
-    color: COLORS.white,
-    fontSize: 11,
-    opacity: 0.9,
-  },
-  costValue: {
-    color: COLORS.white,
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 2,
-  },
-  calcButtonsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginBottom: 12,
-  },
-  calcIntegrationBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.navy,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  calcIntegrationBtnText: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  exportBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: COLORS.slateLight,
-    paddingVertical: 14,
-    borderRadius: 12,
-  },
-  exportBtnText: {
-    fontSize: 13,
-    fontWeight: "bold",
-    color: COLORS.navy,
-    marginLeft: 6,
-  },
-  infoSection: {
+  toolbarOverlay: {
     position: "absolute",
-    top: 0,
+    bottom: 24,
+    left: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(15, 18, 21, 0.95)",
+    borderWidth: 1,
+    borderColor: "#2D343B",
+    borderRadius: 16,
+    padding: 10,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+  },
+  toolBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 4,
+  },
+  toolBtnActive: {
+    backgroundColor: "#22272E",
+    borderRadius: 8,
+  },
+  toolBtnText: {
+    color: COLORS.white,
+    fontSize: 9,
+    fontWeight: "bold",
+    marginTop: 4,
+  },
+  bottomSheet: {
+    position: "absolute",
+    bottom: 0,
     left: 0,
     right: 0,
-    bottom: 0,
-    backgroundColor: COLORS.white,
+    maxHeight: 280,
+    backgroundColor: "#0F1215",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    borderTopWidth: 2,
+    borderTopColor: COLORS.cadSelect,
     padding: 16,
-    borderRadius: 20,
-    elevation: 5,
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
-  infoHead: {
+  sheetHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    marginBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.slateLight,
-    paddingBottom: 10,
-    marginBottom: 12,
+    borderBottomColor: "#1C2126",
+    paddingBottom: 6,
   },
-  infoTitle: {
-    fontSize: 14,
+  sheetTitle: {
+    fontSize: 12,
     fontWeight: "bold",
-    color: COLORS.navy,
+    color: COLORS.white,
   },
-  closeInfoText: {
-    color: COLORS.gold,
-    fontWeight: "bold",
-  },
-  infoBodyScroll: {
+  sheetScroll: {
     flex: 1,
   },
-  infoP: {
-    fontSize: 12,
-    color: COLORS.slate,
-    lineHeight: 18,
-    marginBottom: 12,
-  },
-  infoSubtitle: {
-    fontSize: 13,
+  sheetLabel: {
+    fontSize: 10,
     fontWeight: "bold",
-    color: COLORS.navy,
-    marginTop: 8,
+    color: COLORS.cadDimension,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
     marginBottom: 6,
-  },
-  dimensionAdjustGrid: {
-    gap: 8,
-    marginBottom: 8,
+    marginTop: 6,
   },
   adjustRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: COLORS.bg,
-    borderRadius: 8,
+    backgroundColor: "#171A1E",
     paddingVertical: 8,
     paddingHorizontal: 12,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: COLORS.slateLight,
+    borderColor: "#272E35",
+    marginBottom: 6,
   },
-  adjustLabel: {
+  adjustText: {
     fontSize: 12,
+    color: COLORS.white,
     fontWeight: "bold",
-    color: COLORS.navy,
   },
   adjustBtnGroup: {
     flexDirection: "row",
-    gap: 6,
+    gap: 8,
   },
   adjustBtn: {
-    backgroundColor: COLORS.navy,
+    backgroundColor: "#2C343D",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#3D4854",
   },
   adjustBtnText: {
     color: COLORS.white,
     fontSize: 11,
     fontWeight: "bold",
   },
-  wallButtonsGrid: {
-    gap: 8,
-    backgroundColor: COLORS.bg,
-    borderRadius: 12,
-    padding: 10,
+  wallGrid: {
+    gap: 6,
+    backgroundColor: "#171A1E",
+    borderRadius: 8,
+    padding: 8,
     borderWidth: 1,
-    borderColor: COLORS.slateLight,
+    borderColor: "#272E35",
     marginBottom: 8,
   },
-  wallButtonsRow: {
+  wallRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  wallLabel: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: COLORS.slate,
-    minWidth: 70,
-  },
-  wallBtnGroup: {
-    flexDirection: "row",
-    gap: 8,
-  },
-  wallBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: COLORS.white,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
-  },
-  wallBtnText: {
+  wallName: {
     fontSize: 10,
     fontWeight: "bold",
-    color: COLORS.navy,
-    marginLeft: 4,
+    color: COLORS.slate,
   },
-  sliderContainer: {
-    marginTop: 6,
+  wallBtns: {
+    flexDirection: "row",
     gap: 6,
+  },
+  wallInsertBtn: {
+    backgroundColor: "#23282F",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#353D47",
+  },
+  wallInsertText: {
+    fontSize: 9,
+    fontWeight: "bold",
+    color: COLORS.white,
+  },
+  chipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 12,
+  },
+  chip: {
+    backgroundColor: "#1D232A",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#2A333E",
+  },
+  chipText: {
+    fontSize: 10,
+    color: "#CFD8DC",
+    fontWeight: "bold",
+  },
+  actionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#27303E",
+    paddingVertical: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#374558",
+    marginHorizontal: 3,
+  },
+  actionBtnText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  deleteBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.danger,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  deleteBtnText: {
+    color: COLORS.white,
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  sliderBox: {
+    backgroundColor: "#171A1E",
+    borderRadius: 8,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "#272E35",
   },
   sliderRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: COLORS.bg,
-    borderRadius: 8,
-    padding: 8,
-    borderWidth: 1,
-    borderColor: COLORS.slateLight,
   },
-  sliderComponent: {
+  slider: {
     flex: 1,
-    height: 40,
-    marginHorizontal: 8,
+    height: 30,
   },
-  sliderSideLabel: {
-    fontSize: 11,
+  sliderLabel: {
+    fontSize: 9,
     fontWeight: "bold",
     color: COLORS.slate,
   },
-  infoLi: {
-    fontSize: 12,
+  tipText: {
+    fontSize: 10,
     color: COLORS.slate,
-    lineHeight: 18,
-    marginBottom: 6,
+    textAlign: "center",
+  },
+  presetsOverlay: {
+    flex: 1,
+    backgroundColor: "#0F1215",
+    padding: 16,
+  },
+  presetsHeading: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: COLORS.white,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.cadSelect,
+    paddingLeft: 8,
+  },
+  presetCard: {
+    flexDirection: "row",
+    backgroundColor: "#161A1F",
+    borderWidth: 1,
+    borderColor: "#272E36",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  presetCardBody: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  presetTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: COLORS.white,
+  },
+  presetDesc: {
+    fontSize: 10,
+    color: COLORS.slate,
+    marginTop: 4,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.4)",
+    backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
   },
   modalContent: {
     width: "100%",
-    backgroundColor: COLORS.white,
-    borderRadius: 20,
+    backgroundColor: "#16191C",
+    borderRadius: 16,
     padding: 20,
     borderWidth: 1,
-    borderColor: COLORS.slateLight,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 5,
+    borderColor: "#2C343B",
   },
   modalTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "bold",
-    color: COLORS.navy,
-    marginBottom: 16,
+    color: COLORS.white,
     textAlign: "center",
+    marginBottom: 16,
   },
   inputGroup: {
     marginBottom: 12,
   },
   modalLabel: {
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "bold",
     color: COLORS.slate,
     marginBottom: 6,
   },
   modalInput: {
-    backgroundColor: COLORS.bg,
+    backgroundColor: "#0F1215",
     borderWidth: 1,
-    borderColor: COLORS.slateLight,
+    borderColor: "#2C343B",
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    fontSize: 14,
-    color: COLORS.navy,
-    fontWeight: "600",
+    fontSize: 13,
+    color: COLORS.white,
+    fontWeight: "bold",
   },
   modalActions: {
     flexDirection: "row",
@@ -2335,7 +1976,7 @@ const styles = StyleSheet.create({
   },
   cancelModalBtn: {
     flex: 1,
-    backgroundColor: COLORS.slateLight,
+    backgroundColor: "#2C343D",
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -2343,11 +1984,11 @@ const styles = StyleSheet.create({
   cancelModalBtnText: {
     fontSize: 12,
     fontWeight: "bold",
-    color: COLORS.navy,
+    color: COLORS.white,
   },
   saveModalBtn: {
     flex: 1,
-    backgroundColor: COLORS.accent,
+    backgroundColor: COLORS.cadSelect,
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: "center",
@@ -2355,6 +1996,6 @@ const styles = StyleSheet.create({
   saveModalBtnText: {
     fontSize: 12,
     fontWeight: "bold",
-    color: COLORS.white,
+    color: "#1E293B",
   },
 });
