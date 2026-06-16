@@ -198,7 +198,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         )}
 
         {/* Grid Section Title */}
-        <Text style={styles.sectionTitle}>Estimation Tools</Text>
+        <Text style={styles.sectionTitle}>House estimation calculators</Text>
 
         {/* Stacked List of Calculators */}
         <View style={styles.listContainer}>
@@ -233,9 +233,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           })}
         </View>
 
-        {/* Explore HDE Premium Services Section */}
-        <Text style={styles.sectionTitle}>Explore Premium Services</Text>
-
+        {/* Group 2: Plan Gallery */}
+        <Text style={styles.sectionTitle}>Plan Gallery</Text>
         <View style={styles.shortcutsContainer}>
           <TouchableOpacity
             style={styles.shortcutCard}
@@ -251,7 +250,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             </View>
             <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
           </TouchableOpacity>
+        </View>
 
+        {/* Group 3: Directory */}
+        <Text style={styles.sectionTitle}>Directory</Text>
+        <View style={styles.shortcutsContainer}>
           <TouchableOpacity
             style={styles.shortcutCard}
             onPress={() => (navigation as any).navigate("TabDirectory")}
@@ -263,6 +266,25 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
             <View style={styles.shortcutContent}>
               <Text style={styles.shortcutTitle}>Verified Directory</Text>
               <Text style={styles.shortcutDesc}>Get in touch with local builders, engineers, and decorators.</Text>
+            </View>
+            <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Group 4: Floor Plan Creator */}
+        <Text style={styles.sectionTitle}>Floor Plan Creator</Text>
+        <View style={styles.shortcutsContainer}>
+          <TouchableOpacity
+            style={styles.shortcutCard}
+            onPress={() => (navigation as any).navigate("FloorPlanGenerator")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.shortcutIconWrapper, { backgroundColor: "#D9A44315" }]}>
+              <Ionicons name="map-outline" size={24} color="#D9A443" />
+            </View>
+            <View style={styles.shortcutContent}>
+              <Text style={styles.shortcutTitle}>Floor Plan Creator & Designer</Text>
+              <Text style={styles.shortcutDesc}>Draw custom 2D house layouts, calculate carpet area, and preview in isometric 3D.</Text>
             </View>
             <Ionicons name="arrow-forward-outline" size={18} color="#64748B" />
           </TouchableOpacity>

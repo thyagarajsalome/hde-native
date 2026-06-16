@@ -17,6 +17,7 @@ import ConstructionCalculatorScreen from "../screens/ConstructionCalculatorScree
 import MaterialCalculatorScreen from "../screens/MaterialCalculatorScreen";
 import OtherCalculatorScreen from "../screens/OtherCalculatorScreen";
 import ProRegistrationScreen from "../screens/ProRegistrationScreen";
+import FloorPlanScreen from "../screens/FloorPlanScreen";
 
 // Import Legal Pages
 import PrivacyPolicyScreen from "../screens/PrivacyPolicyScreen";
@@ -35,6 +36,7 @@ export type RootStackParamList = {
   PrivacyPolicy: undefined;
   TermsOfService: undefined;
   AboutUs: undefined;
+  FloorPlanGenerator: undefined;
 };
 
 export type TabParamList = {
@@ -184,6 +186,11 @@ const RootNavigator = () => {
           name="AboutUs"
           component={AboutUsScreen}
           options={{ title: "About HDE" }}
+        />
+        <Stack.Screen
+          name="FloorPlanGenerator"
+          component={FloorPlanScreen}
+          options={{ title: "Floor Plan Creator & Designer" }}
         />
       </Stack.Navigator>
     </NavigationContainer>
