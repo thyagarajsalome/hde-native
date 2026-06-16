@@ -381,7 +381,7 @@ export default function FloorPlanScreen({ navigation }: any) {
       type,
       x: opX,
       y: opY,
-      width: type === "door" ? 28 : 36,
+      width: type === "door" ? 12 : 16,
       rotation,
     };
 
@@ -462,7 +462,7 @@ export default function FloorPlanScreen({ navigation }: any) {
 
   const addOpening = (type: "door" | "window") => {
     const id = "op_" + Date.now();
-    const width = type === "door" ? 28 : 36;
+    const width = type === "door" ? 12 : 16;
     
     // Drop at screen center
     const dropX = snap((-pan2D.x + windowWidth / 2) / zoom2D);
@@ -935,11 +935,11 @@ export default function FloorPlanScreen({ navigation }: any) {
         { id: "r3", label: "Kitchen", x: 120, y: 110, width: 40, height: 50, color: "#FFFFFF05" },
       ];
       newOpenings = [
-        { id: "o1", type: "door", x: 40, y: 110, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 120, y: 85, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 120, y: 135, width: 28, rotation: 90 },
-        { id: "o4", type: "window", x: 80, y: 60, width: 36, rotation: 0 },
-        { id: "o5", type: "window", x: 160, y: 135, width: 36, rotation: 90 },
+        { id: "o1", type: "door", x: 40, y: 110, width: 12, rotation: 90 },
+        { id: "o2", type: "door", x: 120, y: 85, width: 12, rotation: 90 },
+        { id: "o3", type: "door", x: 120, y: 135, width: 12, rotation: 90 },
+        { id: "o4", type: "window", x: 80, y: 60, width: 16, rotation: 0 },
+        { id: "o5", type: "window", x: 160, y: 135, width: 16, rotation: 90 },
       ];
       newFurniture = [
         { id: "f1", type: "bed", x: 50, y: 70, width: 20, height: 26, rotation: 0 },
@@ -953,14 +953,14 @@ export default function FloorPlanScreen({ navigation }: any) {
         { id: "r4", label: "Bathroom", x: 40, y: 120, width: 64, height: 40, color: "#FFFFFF05" },
       ];
       newOpenings = [
-        { id: "o1", type: "door", x: 40, y: 70, width: 28, rotation: 270 },
-        { id: "o2", type: "door", x: 104, y: 56, width: 28, rotation: 270 },
-        { id: "o3", type: "door", x: 104, y: 118, width: 28, rotation: 270 },
-        { id: "o4", type: "door", x: 64, y: 120, width: 28, rotation: 0 },
-        { id: "o5", type: "window", x: 72, y: 40, width: 36, rotation: 0 },
-        { id: "o6", type: "window", x: 132, y: 40, width: 36, rotation: 0 },
-        { id: "o7", type: "window", x: 160, y: 132, width: 36, rotation: 90 },
-        { id: "o8", type: "window", x: 40, y: 140, width: 28, rotation: 270 },
+        { id: "o1", type: "door", x: 40, y: 70, width: 12, rotation: 270 },
+        { id: "o2", type: "door", x: 104, y: 56, width: 12, rotation: 270 },
+        { id: "o3", type: "door", x: 104, y: 118, width: 12, rotation: 270 },
+        { id: "o4", type: "door", x: 64, y: 120, width: 12, rotation: 0 },
+        { id: "o5", type: "window", x: 72, y: 40, width: 16, rotation: 0 },
+        { id: "o6", type: "window", x: 132, y: 40, width: 16, rotation: 0 },
+        { id: "o7", type: "window", x: 160, y: 132, width: 16, rotation: 90 },
+        { id: "o8", type: "window", x: 40, y: 140, width: 16, rotation: 270 },
       ];
       newFurniture = [
         { id: "f1", type: "bed", x: 132, y: 70, width: 20, height: 26, rotation: 0 },
@@ -976,15 +976,15 @@ export default function FloorPlanScreen({ navigation }: any) {
         { id: "r5", label: "Kids Bed", x: 100, y: 120, width: 60, height: 80, color: "#FFFFFF05" },
       ];
       newOpenings = [
-        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 270 },
-        { id: "o2", type: "door", x: 70, y: 120, width: 28, rotation: 0 },
-        { id: "o3", type: "door", x: 130, y: 120, width: 28, rotation: 0 },
-        { id: "o4", type: "door", x: 100, y: 70, width: 28, rotation: 270 },
-        { id: "o5", type: "door", x: 100, y: 104, width: 28, rotation: 270 },
-        { id: "o6", type: "window", x: 70, y: 40, width: 36, rotation: 0 },
-        { id: "o7", type: "window", x: 130, y: 40, width: 36, rotation: 0 },
-        { id: "o8", type: "window", x: 70, y: 200, width: 36, rotation: 180 },
-        { id: "o9", type: "window", x: 130, y: 200, width: 36, rotation: 180 },
+        { id: "o1", type: "door", x: 40, y: 80, width: 12, rotation: 270 },
+        { id: "o2", type: "door", x: 70, y: 120, width: 12, rotation: 0 },
+        { id: "o3", type: "door", x: 130, y: 120, width: 12, rotation: 0 },
+        { id: "o4", type: "door", x: 100, y: 70, width: 12, rotation: 270 },
+        { id: "o5", type: "door", x: 100, y: 104, width: 12, rotation: 270 },
+        { id: "o6", type: "window", x: 70, y: 40, width: 16, rotation: 0 },
+        { id: "o7", type: "window", x: 130, y: 40, width: 16, rotation: 0 },
+        { id: "o8", type: "window", x: 70, y: 200, width: 16, rotation: 180 },
+        { id: "o9", type: "window", x: 130, y: 200, width: 16, rotation: 180 },
       ];
       newFurniture = [
         { id: "f1", type: "bed", x: 45, y: 160, width: 20, height: 26, rotation: 0 },
@@ -1448,7 +1448,7 @@ export default function FloorPlanScreen({ navigation }: any) {
                       height={room.height}
                       fill={isSelected ? "rgba(255, 159, 28, 0.05)" : "transparent"}
                       stroke={isSelected ? COLORS.cadSelect : COLORS.cadWallBorder}
-                      strokeWidth={isSelected ? 2.5 / zoom2D : 1.5 / zoom2D}
+                      strokeWidth={isSelected ? 3.5 : 2.5}
                     />
                     {/* Room Label & Area Callout */}
                     <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 - 4 / zoom2D} textAnchor="middle" fontSize={Math.max(8, 11 / zoom2D)} fontWeight="bold" fill="#ECEFF1">
@@ -1492,7 +1492,7 @@ export default function FloorPlanScreen({ navigation }: any) {
                       x2={w.x2}
                       y2={w.y2}
                       stroke={isSelected ? COLORS.cadSelect : COLORS.cadWall}
-                      strokeWidth={6 / zoom2D}
+                      strokeWidth={isSelected ? 3.5 : 2.5}
                       strokeLinecap="round"
                     />
                     {/* Dimension Text overlay */}
@@ -1512,12 +1512,12 @@ export default function FloorPlanScreen({ navigation }: any) {
                   <G key={op.id} transform={`rotate(${op.rotation}, ${op.x}, ${op.y})`}>
                     {op.type === "door" ? (
                       <G>
-                        <Path d={`M ${op.x} ${op.y} A ${op.width} ${op.width} 0 0 1 ${op.x + op.width} ${op.y + op.width}`} fill="none" stroke={COLORS.cadDoor} strokeWidth={1 / zoom2D} strokeDasharray={`${2/zoom2D},${2/zoom2D}`} />
-                        <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.cadSelect : COLORS.cadDoor} strokeWidth={3.5 / zoom2D} />
-                        <Circle cx={op.x} cy={op.y} r={4 / zoom2D} fill={COLORS.cadDoor} />
+                        <Path d={`M ${op.x} ${op.y + op.width} A ${op.width} ${op.width} 0 0 0 ${op.x + op.width} ${op.y}`} fill="none" stroke={COLORS.cadDoor} strokeWidth={0.8} strokeDasharray="2,2" />
+                        <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.cadSelect : COLORS.cadDoor} strokeWidth={1.5} />
+                        <Circle cx={op.x} cy={op.y} r={1.5} fill={COLORS.cadDoor} />
                       </G>
                     ) : (
-                      <Rect x={op.x - op.width / 2} y={op.y - 4 / zoom2D} width={op.width} height={8 / zoom2D} fill="#1E293B" stroke={isSelected ? COLORS.cadSelect : COLORS.cadWindow} strokeWidth={2 / zoom2D} />
+                      <Rect x={op.x - op.width / 2} y={op.y - 1.2} width={op.width} height={2.4} fill="#1E293B" stroke={isSelected ? COLORS.cadSelect : COLORS.cadWindow} strokeWidth={0.8} />
                     )}
                   </G>
                 );
@@ -1545,8 +1545,8 @@ export default function FloorPlanScreen({ navigation }: any) {
                     x2={drawingWall.x2}
                     y2={drawingWall.y2}
                     stroke={COLORS.cadDimension}
-                    strokeWidth={6 / zoom2D}
-                    strokeDasharray={`${4/zoom2D},${4/zoom2D}`}
+                    strokeWidth={2.5}
+                    strokeDasharray="4,4"
                     strokeLinecap="round"
                   />
                   {/* Real-time dimension marker label */}
