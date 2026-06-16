@@ -96,6 +96,11 @@ export default function FloorPlanScreen({ navigation }: any) {
   const [viewMode, setViewMode] = useState<"2d" | "3d" | "templates" | "info">("2d");
   const [tool, setTool] = useState<"select" | "room" | "wall" | "door" | "window" | "furniture">("room");
   
+  // 3D Orbit States
+  const [rotationAngle, setRotationAngle] = useState(45);
+  const [tiltAngle, setTiltAngle] = useState(30);
+  const [zoomScale, setZoomScale] = useState(0.65);
+  
   // Floor Plan Geometry State
   const [rooms, setRooms] = useState<Room[]>([]);
   const [walls, setWalls] = useState<Wall[]>([]);
@@ -747,35 +752,38 @@ export default function FloorPlanScreen({ navigation }: any) {
     });
   };
 
-  // Isometric 3D wall & rooms coordinate mapping
+  // Isometric 3D wall & rooms coordinate mapping with rotation, tilt and zoom
   const toIsometric = (x: number, y: number, z: number = 0) => {
-    // Standard isometric projection constants
-    const angleX = 30 * (Math.PI / 180);
-    const angleY = 30 * (Math.PI / 180);
-    
-    // Scale and translate coordinate to center isometric preview on 400x400 canvas
-    const scale = 0.65;
-    const centerX = 200;
-    const centerY = 160;
+    // 1. Rotate around canvas center (200, 200)
+    const radRot = (rotationAngle * Math.PI) / 180;
+    const dx = x - 200;
+    const dy = y - 200;
+    const rotX = dx * Math.cos(radRot) - dy * Math.sin(radRot) + 200;
+    const rotY = dx * Math.sin(radRot) + dy * Math.cos(radRot) + 200;
 
-    const isoX = (x - y) * Math.cos(angleX) * scale + centerX;
-    const isoY = ((x + y) * Math.sin(angleY) - z) * scale + centerY;
-    return { x: isoX, y: isoY };
+    // 2. Project into isometric screen coordinates
+    const radTilt = (tiltAngle * Math.PI) / 180;
+    const centerX = 200;
+    const centerY = 180; // center offset
+
+    const isoX = (rotX - rotY) * Math.cos(30 * Math.PI / 180) * zoomScale + centerX;
+    const isoY = ((rotX + rotY) * Math.sin(radTilt) - z) * zoomScale + centerY;
+
+    return { x: isoX, y: isoY, depth: rotY };
   };
 
-  // Render components for 3D Isometric View
+  // Render components for 3D Isometric View with painter's algorithm sorting
   const renderIsometricScene = () => {
     const list: React.ReactNode[] = [];
     const wallHeight = 40; // 3D wall extrusion height (pixels)
 
-    // 1. Draw floor slabs (Room polygons)
+    // 1. Draw floor slabs (Room polygons) - Ground level, rendered first
     rooms.forEach((room) => {
       const p1 = toIsometric(room.x, room.y);
       const p2 = toIsometric(room.x + room.width, room.y);
       const p3 = toIsometric(room.x + room.width, room.y + room.height);
       const p4 = toIsometric(room.x, room.y + room.height);
       
-      const points = `${p1.x},${p1.y} ${p2.x},${p2.y} ${p3.x},${p3.y} ${p4.x},${p4.y}`;
       list.push(
         <G key={`iso_room_${room.id}`}>
           <Path d={`M ${p1.x} ${p1.y} L ${p2.x} ${p2.y} L ${p3.x} ${p3.y} L ${p4.x} ${p4.y} Z`} fill={room.color} stroke="#94A3B8" strokeWidth={0.5} />
@@ -787,46 +795,66 @@ export default function FloorPlanScreen({ navigation }: any) {
       );
     });
 
-    // 2. Draw 3D Walls (Extrusion logic)
-    // For every wall, draw the bottom line, top line, and side polygons with shading
+    // 2. Compile all 3D standing elements (walls, openings, furniture)
+    const elementsToRender: { depth: number; element: React.ReactNode; key: string }[] = [];
+
+    // Add 3D Walls
     walls.forEach((w) => {
+      // Calculate depth based on wall midpoint
+      const midX = (w.startX + w.endX) / 2;
+      const midY = (w.startY + w.endY) / 2;
+      const midProj = toIsometric(midX, midY);
+
       // Base points
       const b1 = toIsometric(w.startX, w.startY);
       const b2 = toIsometric(w.endX, w.endY);
-      // Top points (Z = wallHeight)
+      // Top points
       const t1 = toIsometric(w.startX, w.startY, wallHeight);
       const t2 = toIsometric(w.endX, w.endY, wallHeight);
 
       // Shaded wall colors
       const isHorizontal = Math.abs(w.startY - w.endY) < 5;
-      const wallColor = isHorizontal ? "#475569" : "#64748B"; // Darker shade for horizontal (facing top-left)
+      const wallColor = isHorizontal ? "#475569" : "#64748B";
       const topColor = "#94A3B8";
 
-      list.push(
-        <G key={`iso_wall_${w.id}`}>
-          {/* Side face */}
-          <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill={wallColor} stroke="#334155" strokeWidth={0.5} />
-          {/* Top edge of wall */}
-          <Line x1={t1.x} y1={t1.y} x2={t2.x} y2={t2.y} stroke={topColor} strokeWidth={w.thickness * 0.7} strokeLinecap="round" />
-        </G>
-      );
+      elementsToRender.push({
+        depth: midProj.depth,
+        key: `wall_${w.id}`,
+        element: (
+          <G key={`iso_wall_${w.id}`}>
+            {/* Side face */}
+            <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill={wallColor} stroke="#334155" strokeWidth={0.5} />
+            {/* Top edge of wall */}
+            <Line x1={t1.x} y1={t1.y} x2={t2.x} y2={t2.y} stroke={topColor} strokeWidth={w.thickness * 0.7} strokeLinecap="round" />
+          </G>
+        ),
+      });
     });
 
-    // 3. Draw 3D Openings (Doors and Windows as flat visual indicators on 3D plane)
+    // Add 3D Openings
     openings.forEach((op) => {
       const pos = toIsometric(op.x, op.y);
-      if (op.type === "door") {
-        list.push(<Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={3} fill="#D9A443" />);
-      } else {
-        list.push(<Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={3} fill="#3B82F6" />);
-      }
+      elementsToRender.push({
+        depth: pos.depth,
+        key: `op_${op.id}`,
+        element: op.type === "door" ? (
+          <Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={3} fill="#D9A443" />
+        ) : (
+          <Circle key={`iso_op_${op.id}`} cx={pos.x} cy={pos.y} r={3} fill="#3B82F6" />
+        ),
+      });
     });
 
-    // 4. Draw 3D Furniture blocks (extrude cubes)
+    // Add 3D Furniture blocks
     furniture.forEach((f) => {
       const w = f.width;
       const h = f.height;
       const zh = 15; // furniture height
+
+      // Depth based on furniture center
+      const midX = f.x + w / 2;
+      const midY = f.y + h / 2;
+      const midProj = toIsometric(midX, midY);
 
       const b1 = toIsometric(f.x, f.y);
       const b2 = toIsometric(f.x + w, f.y);
@@ -838,15 +866,27 @@ export default function FloorPlanScreen({ navigation }: any) {
       const t3 = toIsometric(f.x + w, f.y + h, zh);
       const t4 = toIsometric(f.x, f.y + h, zh);
 
-      list.push(
-        <G key={`iso_furn_${f.id}`}>
-          {/* Side faces */}
-          <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill="#CBD5E1" stroke="#64748B" strokeWidth={0.5} />
-          <Path d={`M ${b2.x} ${b2.y} L ${b3.x} ${b3.y} L ${t3.x} ${t3.y} L ${t2.x} ${t2.y} Z`} fill="#94A3B8" stroke="#64748B" strokeWidth={0.5} />
-          {/* Top face */}
-          <Path d={`M ${t1.x} ${t1.y} L ${t2.x} ${t2.y} L ${t3.x} ${t3.y} L ${t4.x} ${t4.y} Z`} fill="#E2E8F0" stroke="#64748B" strokeWidth={0.5} />
-        </G>
-      );
+      elementsToRender.push({
+        depth: midProj.depth,
+        key: `furn_${f.id}`,
+        element: (
+          <G key={`iso_furn_${f.id}`}>
+            {/* Side faces */}
+            <Path d={`M ${b1.x} ${b1.y} L ${b2.x} ${b2.y} L ${t2.x} ${t2.y} L ${t1.x} ${t1.y} Z`} fill="#CBD5E1" stroke="#64748B" strokeWidth={0.5} />
+            <Path d={`M ${b2.x} ${b2.y} L ${b3.x} ${b3.y} L ${t3.x} ${t3.y} L ${t2.x} ${t2.y} Z`} fill="#94A3B8" stroke="#64748B" strokeWidth={0.5} />
+            {/* Top face */}
+            <Path d={`M ${t1.x} ${t1.y} L ${t2.x} ${t2.y} L ${t3.x} ${t3.y} L ${t4.x} ${t4.y} Z`} fill="#E2E8F0" stroke="#64748B" strokeWidth={0.5} />
+          </G>
+        ),
+      });
+    });
+
+    // 3. Sort by depth (Painter's algorithm: further objects rendered first, i.e. lower depth/rotY value)
+    elementsToRender.sort((a, b) => a.depth - b.depth);
+
+    // 4. Add sorted elements to rendering list
+    elementsToRender.forEach((item) => {
+      list.push(item.element);
     });
 
     return list;
@@ -1222,6 +1262,63 @@ export default function FloorPlanScreen({ navigation }: any) {
                 {/* 3D scene elements */}
                 {renderIsometricScene()}
               </Svg>
+            </View>
+
+            {/* 3D Orbit Controls */}
+            <View style={styles.orbitControlsContainer}>
+              <Text style={styles.controlSectionTitle}>3D Orbit & Zoom Controls</Text>
+              
+              <View style={styles.controlRow}>
+                {/* Rotation */}
+                <View style={styles.controlGroup}>
+                  <Text style={styles.controlLabel}>Rotate (Z-Axis)</Text>
+                  <View style={styles.buttonGroup}>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setRotationAngle((prev) => (prev - 15 + 360) % 360)}>
+                      <Ionicons name="arrow-undo-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                    <Text style={styles.controlValueText}>{rotationAngle}°</Text>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setRotationAngle((prev) => (prev + 15) % 360)}>
+                      <Ionicons name="arrow-redo-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Tilt */}
+                <View style={styles.controlGroup}>
+                  <Text style={styles.controlLabel}>Camera Tilt</Text>
+                  <View style={styles.buttonGroup}>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setTiltAngle((prev) => Math.max(15, prev - 5))}>
+                      <Ionicons name="trending-down-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                    <Text style={styles.controlValueText}>{tiltAngle}°</Text>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setTiltAngle((prev) => Math.min(60, prev + 5))}>
+                      <Ionicons name="trending-up-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.controlRow}>
+                {/* Zoom */}
+                <View style={styles.controlGroup}>
+                  <Text style={styles.controlLabel}>Zoom / Scale</Text>
+                  <View style={styles.buttonGroup}>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomScale((prev) => Math.max(0.3, prev - 0.05))}>
+                      <Ionicons name="remove-circle-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                    <Text style={styles.controlValueText}>{Math.round(zoomScale * 100)}%</Text>
+                    <TouchableOpacity style={styles.controlBtn} onPress={() => setZoomScale((prev) => Math.min(1.2, prev + 0.05))}>
+                      <Ionicons name="add-circle-outline" size={16} color={COLORS.navy} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* Reset */}
+                <TouchableOpacity style={styles.reset3DBtn} onPress={() => { setRotationAngle(45); setTiltAngle(30); setZoomScale(0.65); }}>
+                  <Ionicons name="refresh-outline" size={16} color={COLORS.white} style={{ marginRight: 6 }} />
+                  <Text style={styles.reset3DBtnText}>Reset Camera</Text>
+                </TouchableOpacity>
+              </View>
             </View>
             
             <Text style={styles.placeholder3DNote}>
@@ -1766,6 +1863,79 @@ const styles = StyleSheet.create({
   calcIntegrationBtnText: {
     color: COLORS.white,
     fontSize: 12,
+    fontWeight: "bold",
+  },
+  orbitControlsContainer: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.slateLight,
+    padding: 14,
+    marginBottom: 16,
+  },
+  controlSectionTitle: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: COLORS.navy,
+    marginBottom: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  controlRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 10,
+    gap: 12,
+  },
+  controlGroup: {
+    flex: 1,
+  },
+  controlLabel: {
+    fontSize: 11,
+    color: COLORS.slate,
+    fontWeight: "600",
+    marginBottom: 6,
+  },
+  buttonGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.bg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.slateLight,
+    padding: 2,
+    justifyContent: "space-between",
+  },
+  controlBtn: {
+    padding: 8,
+    borderRadius: 6,
+    backgroundColor: COLORS.white,
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+  },
+  controlValueText: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: COLORS.navy,
+    minWidth: 32,
+    textAlign: "center",
+  },
+  reset3DBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.navy,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  reset3DBtnText: {
+    color: COLORS.white,
+    fontSize: 11,
     fontWeight: "bold",
   },
   exportBtn: {
