@@ -130,6 +130,7 @@ export default function FloorPlanScreen({ navigation }: any) {
   const [orbitYaw, setOrbitYaw] = useState(45);
   const [orbitPitch, setOrbitPitch] = useState(35);
   const [zoomScale, setZoomScale] = useState(0.8);
+  const [projectionMode, setProjectionMode] = useState<"perspective" | "orthographic">("orthographic");
   
   // First-Person Walkthrough camera (in feet coordinates)
   const [camX, setCamX] = useState(20);
@@ -742,7 +743,8 @@ export default function FloorPlanScreen({ navigation }: any) {
         const next = (prev + incDx * 0.5) % 360;
         return next < 0 ? next + 360 : next;
       });
-      setOrbitPitch(prev => Math.max(10, Math.min(85, prev - incDy * 0.5)));
+      // SketchUp-style free height orbit: pitch from -89 to 89 degrees allows viewing from underneath
+      setOrbitPitch(prev => Math.max(-89, Math.min(89, prev - incDy * 0.5)));
       return;
     }
 
@@ -1130,11 +1132,13 @@ export default function FloorPlanScreen({ navigation }: any) {
     let activeYaw = walkYaw;
     let activePitch = walkPitch;
     const FOV = 280;
+    const isOrtho = projectionMode === "orthographic" && viewMode === "3d";
 
     if (viewMode === "3d") {
       // Orbit camera on a sphere around the layout center
       const center = getLayoutCenter();
-      const radius = 55 / zoomScale; // Camera radius distance scales with zoomScale
+      // For orthographic, distance (radius) doesn't change perspective scale, so keep it constant to avoid division scaling issues
+      const radius = isOrtho ? 55 : (55 / zoomScale);
       const yawRad = (orbitYaw * Math.PI) / 180;
       const pitchRad = (orbitPitch * Math.PI) / 180;
 
@@ -1160,6 +1164,17 @@ export default function FloorPlanScreen({ navigation }: any) {
     const pitchRad = (activePitch * Math.PI) / 180;
     const rotZ = dz * Math.cos(pitchRad) - rotY * Math.sin(pitchRad);
     const depth = dz * Math.sin(pitchRad) + rotY * Math.cos(pitchRad);
+
+    if (isOrtho) {
+      // Orthographic projection: parallel projection without perspective division.
+      // Zoom is achieved by linear scaling multiplier of rotX and rotZ.
+      const orthoScale = 12 * zoomScale;
+      return {
+        x: rotX * orthoScale + windowWidth / 2,
+        y: rotZ * orthoScale + viewportHeight / 2,
+        depth, // still return depth for depth sorting
+      };
+    }
 
     return {
       x: depth > 0.1 ? (rotX / depth) * FOV + windowWidth / 2 : -9999,
@@ -1683,6 +1698,15 @@ export default function FloorPlanScreen({ navigation }: any) {
               </TouchableOpacity>
               <TouchableOpacity style={styles.camPresetBtn} onPress={() => setCameraPreset("side")}>
                 <Text style={styles.camPresetBtnText}>SIDE</Text>
+              </TouchableOpacity>
+              <View style={{ width: 1, backgroundColor: "#3D4854", marginVertical: 4 }} />
+              <TouchableOpacity 
+                style={[styles.camPresetBtn, projectionMode === "orthographic" && { borderColor: COLORS.cadSelect }]} 
+                onPress={() => setProjectionMode(prev => prev === "perspective" ? "orthographic" : "perspective")}
+              >
+                <Text style={[styles.camPresetBtnText, projectionMode === "orthographic" && { color: COLORS.cadSelect }]}>
+                  {projectionMode === "orthographic" ? "ORTHO" : "PERSPECT"}
+                </Text>
               </TouchableOpacity>
             </View>
           </>
