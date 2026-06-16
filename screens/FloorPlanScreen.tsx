@@ -138,6 +138,13 @@ export default function FloorPlanScreen({ navigation }: any) {
   const [walkYaw, setWalkYaw] = useState(0); // gaze orientation angle
   const [walkPitch, setWalkPitch] = useState(0); // gaze look up/down
 
+  // 2D Zoom/Pan & Web mouse controls
+  const [zoom2D, setZoom2D] = useState(1.0);
+  const [pan2D, setPan2D] = useState({ x: 0, y: 0 });
+  const [isPanning2D, setIsPanning2D] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [isMouseDown, setIsMouseDown] = useState(false);
+
   // Touch Tracking references
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchStartY, setTouchStartY] = useState(0);
@@ -180,6 +187,39 @@ export default function FloorPlanScreen({ navigation }: any) {
     }
   };
 
+  const centerPlan2D = (customList?: Room[], wallList?: CustomWall[]) => {
+    const activeRooms = customList || rooms;
+    const activeWalls = wallList || customWalls;
+
+    if (activeRooms.length === 0 && activeWalls.length === 0) {
+      setPan2D({ x: 0, y: 0 });
+      return;
+    }
+
+    let minX = 9999, maxX = -9999, minY = 9999, maxY = -9999;
+    activeRooms.forEach(r => {
+      minX = Math.min(minX, r.x);
+      maxX = Math.max(maxX, r.x + r.width);
+      minY = Math.min(minY, r.y);
+      maxY = Math.max(maxY, r.y + r.height);
+    });
+
+    activeWalls.forEach(w => {
+      minX = Math.min(minX, w.x1, w.x2);
+      maxX = Math.max(maxX, w.x1, w.x2);
+      minY = Math.min(minY, w.y1, w.y2);
+      maxY = Math.max(maxY, w.y1, w.y2);
+    });
+
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    setPan2D({
+      x: windowWidth / 2 - centerX,
+      y: viewportHeight / 2 - centerY
+    });
+  };
+
   const loadDraft = async () => {
     try {
       const saved = await AsyncStorage.getItem("hde_cad_floorplan");
@@ -190,6 +230,10 @@ export default function FloorPlanScreen({ navigation }: any) {
         setOpenings(o || []);
         setFurniture(f || []);
         if (name) setProjectName(name);
+        
+        setTimeout(() => {
+          centerPlan2D(r || [], cw || []);
+        }, 100);
       } else {
         loadPresetTemplate("1bhk");
       }
@@ -276,8 +320,8 @@ export default function FloorPlanScreen({ navigation }: any) {
     const newRoom: Room = {
       id,
       label: inputLabel,
-      x: snap(100),
-      y: snap(150),
+      x: snap((-pan2D.x + windowWidth / 2) / zoom2D - wPixels / 2),
+      y: snap((-pan2D.y + viewportHeight / 2) / zoom2D - hPixels / 2),
       width: wPixels,
       height: hPixels,
       color: "#D9A44315", // Premium gold tint slab
@@ -292,13 +336,15 @@ export default function FloorPlanScreen({ navigation }: any) {
   // Quick preset rooms
   const dropRoomPreset = (label: string, wFt: number, hFt: number) => {
     const id = "room_" + Date.now();
+    const wPixels = wFt * PIXELS_PER_FOOT;
+    const hPixels = hFt * PIXELS_PER_FOOT;
     const newRoom: Room = {
       id,
       label,
-      x: snap(120),
-      y: snap(140),
-      width: wFt * PIXELS_PER_FOOT,
-      height: hFt * PIXELS_PER_FOOT,
+      x: snap((-pan2D.x + windowWidth / 2) / zoom2D - wPixels / 2),
+      y: snap((-pan2D.y + viewportHeight / 2) / zoom2D - hPixels / 2),
+      width: wPixels,
+      height: hPixels,
       color: "#FFFFFF08",
     };
     setRooms([...rooms, newRoom]);
@@ -370,13 +416,36 @@ export default function FloorPlanScreen({ navigation }: any) {
   // Add elements
   const addFurniture = (type: "bed" | "sofa" | "table" | "toilet" | "sink" | "chair") => {
     const id = "furn_" + Date.now();
+    let width = 16;
+    let height = 12;
+
+    if (type === "bed") {
+      width = 20; // 5.0 ft
+      height = 26; // 6.5 ft
+    } else if (type === "sofa") {
+      width = 24; // 6.0 ft
+      height = 12; // 3.0 ft
+    } else if (type === "table") {
+      width = 16; // 4.0 ft
+      height = 12; // 3.0 ft
+    } else if (type === "toilet") {
+      width = 8; // 2.0 ft
+      height = 10; // 2.5 ft
+    } else if (type === "sink") {
+      width = 8; // 2.0 ft
+      height = 6; // 1.5 ft
+    } else if (type === "chair") {
+      width = 6; // 1.5 ft
+      height = 6; // 1.5 ft
+    }
+
     const newFurn: Furniture = {
       id,
       type,
-      x: snap(150),
-      y: snap(180),
-      width: type === "bed" ? 48 : type === "sofa" ? 64 : 32,
-      height: type === "bed" ? 64 : type === "sofa" ? 32 : 32,
+      x: snap((-pan2D.x + windowWidth / 2) / zoom2D - width / 2),
+      y: snap((-pan2D.y + viewportHeight / 2) / zoom2D - height / 2),
+      width,
+      height,
       rotation: 0,
     };
     setFurniture([...furniture, newFurn]);
@@ -460,11 +529,15 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     if (viewMode !== "2d") return; // 3D handles gestures on drag move only
 
+    // Compute canvas coordinates for 2D calculations
+    const calcX = (locationX - pan2D.x) / zoom2D;
+    const calcY = (locationY - pan2D.y) / zoom2D;
+
     // 2. Custom Wall Drawing mode
     if (tool === "draw_wall") {
-      const snapStart = getNearestEndpoint(locationX, locationY);
-      const startX = snapStart ? snapStart.x : snap(locationX);
-      const startY = snapStart ? snapStart.y : snap(locationY);
+      const snapStart = getNearestEndpoint(calcX, calcY);
+      const startX = snapStart ? snapStart.x : snap(calcX);
+      const startY = snapStart ? snapStart.y : snap(calcY);
       setDrawingWall({ x1: startX, y1: startY, x2: startX, y2: startY });
       return;
     }
@@ -474,20 +547,20 @@ export default function FloorPlanScreen({ navigation }: any) {
     if (selectedItem && selectedItem.type === "room") {
       const room = rooms.find(r => r.id === selectedItem.id);
       if (room) {
-        const hSize = 25;
-        if (Math.abs(locationX - (room.x + room.width)) < hSize && Math.abs(locationY - (room.y + room.height/2)) < hSize) {
+        const hSize = 25 / zoom2D; // Scale hit area with zoom
+        if (Math.abs(calcX - (room.x + room.width)) < hSize && Math.abs(calcY - (room.y + room.height/2)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "right" });
           return;
         }
-        if (Math.abs(locationX - room.x) < hSize && Math.abs(locationY - (room.y + room.height/2)) < hSize) {
+        if (Math.abs(calcX - room.x) < hSize && Math.abs(calcY - (room.y + room.height/2)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "left" });
           return;
         }
-        if (Math.abs(locationX - (room.x + room.width/2)) < hSize && Math.abs(locationY - (room.y + room.height)) < hSize) {
+        if (Math.abs(calcX - (room.x + room.width/2)) < hSize && Math.abs(calcY - (room.y + room.height)) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "bottom" });
           return;
         }
-        if (Math.abs(locationX - (room.x + room.width/2)) < hSize && Math.abs(locationY - room.y) < hSize) {
+        if (Math.abs(calcX - (room.x + room.width/2)) < hSize && Math.abs(calcY - room.y) < hSize) {
           setDraggedItem({ type: "room", id: room.id, handle: "top" });
           return;
         }
@@ -496,17 +569,17 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // Check furniture hits
     const hitFurn = [...furniture].reverse().find(
-      f => locationX >= f.x && locationX <= f.x + f.width && locationY >= f.y && locationY <= f.y + f.height
+      f => calcX >= f.x && calcX <= f.x + f.width && calcY >= f.y && calcY <= f.y + f.height
     );
     if (hitFurn) {
       setSelectedItem({ type: "furniture", id: hitFurn.id });
-      setDraggedItem({ type: "furniture", id: hitFurn.id, handle: "move", offsetX: locationX - hitFurn.x, offsetY: locationY - hitFurn.y });
+      setDraggedItem({ type: "furniture", id: hitFurn.id, handle: "move", offsetX: calcX - hitFurn.x, offsetY: calcY - hitFurn.y });
       return;
     }
 
     // Check openings hits
     const hitOp = openings.find(
-      o => Math.abs(locationX - o.x) < 22 && Math.abs(locationY - o.y) < 22
+      o => Math.abs(calcX - o.x) < 22 / zoom2D && Math.abs(calcY - o.y) < 22 / zoom2D
     );
     if (hitOp) {
       setSelectedItem({ type: "opening", id: hitOp.id });
@@ -516,14 +589,13 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // Check custom walls hits
     const hitWall = customWalls.find(w => {
-      // Distance from point to line segment
       const l2 = Math.pow(w.x2 - w.x1, 2) + Math.pow(w.y2 - w.y1, 2);
       if (l2 === 0) return false;
-      const t = Math.max(0, Math.min(1, ((locationX - w.x1) * (w.x2 - w.x1) + (locationY - w.y1) * (w.y2 - w.y1)) / l2));
+      const t = Math.max(0, Math.min(1, ((calcX - w.x1) * (w.x2 - w.x1) + (calcY - w.y1) * (w.y2 - w.y1)) / l2));
       const projX = w.x1 + t * (w.x2 - w.x1);
       const projY = w.y1 + t * (w.y2 - w.y1);
-      const dist = Math.sqrt(Math.pow(locationX - projX, 2) + Math.pow(locationY - projY, 2));
-      return dist < 12; // hit radius
+      const dist = Math.sqrt(Math.pow(calcX - projX, 2) + Math.pow(calcY - projY, 2));
+      return dist < 12 / zoom2D;
     });
     if (hitWall) {
       setSelectedItem({ type: "wall", id: hitWall.id });
@@ -532,7 +604,7 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // Check rooms hits
     const hitRoom = [...rooms].reverse().find(
-      r => locationX >= r.x && locationX <= r.x + r.width && locationY >= r.y && locationY <= r.y + r.height
+      r => calcX >= r.x && calcX <= r.x + r.width && calcY >= r.y && calcY <= r.y + r.height
     );
     if (hitRoom) {
       setSelectedItem({ type: "room", id: hitRoom.id });
@@ -552,15 +624,21 @@ export default function FloorPlanScreen({ navigation }: any) {
         type: "room",
         id: hitRoom.id,
         handle: "move",
-        offsetX: locationX - hitRoom.x,
-        offsetY: locationY - hitRoom.y,
+        offsetX: calcX - hitRoom.x,
+        offsetY: calcY - hitRoom.y,
         childFurniture,
         childOpenings
       });
       return;
     }
 
-    setSelectedItem(null);
+    // If nothing hit, start panning in select tool
+    if (tool === "select") {
+      setIsPanning2D(true);
+      setPanStart({ x: pan2D.x, y: pan2D.y });
+    } else {
+      setSelectedItem(null);
+    }
   };
 
   const handleTouchMove = (e: any) => {
@@ -619,11 +697,24 @@ export default function FloorPlanScreen({ navigation }: any) {
       return;
     }
 
+    // 2D panning logic
+    if (viewMode === "2d" && isPanning2D) {
+      setPan2D({
+        x: panStart.x + dx,
+        y: panStart.y + dy
+      });
+      return;
+    }
+
+    // Compute canvas coordinates for 2D calculations
+    const calcX = (locationX - pan2D.x) / zoom2D;
+    const calcY = (locationY - pan2D.y) / zoom2D;
+
     // 3. 2D editing and drawing movement drag
     if (tool === "draw_wall" && drawingWall) {
-      const snapTarget = getNearestEndpoint(locationX, locationY);
-      const snapX = snapTarget ? snapTarget.x : snap(locationX);
-      const snapY = snapTarget ? snapTarget.y : snap(locationY);
+      const snapTarget = getNearestEndpoint(calcX, calcY);
+      const snapX = snapTarget ? snapTarget.x : snap(calcX);
+      const snapY = snapTarget ? snapTarget.y : snap(calcY);
       
       setDrawingWall({ ...drawingWall, x2: snapX, y2: snapY });
       setSnapIndicator(snapTarget);
@@ -637,32 +728,31 @@ export default function FloorPlanScreen({ navigation }: any) {
       if (!room) return;
 
       if (draggedItem.handle === "right") {
-        const newW = Math.max(16, snap(locationX - room.x));
+        const newW = Math.max(16, snap(calcX - room.x));
         setRooms(rooms.map(r => r.id === room.id ? { ...r, width: newW } : r));
       } else if (draggedItem.handle === "left") {
-        const newW = Math.max(16, snap(room.x + room.width - locationX));
-        const newX = snap(locationX);
+        const newW = Math.max(16, snap(room.x + room.width - calcX));
+        const newX = snap(calcX);
         if (newW >= 16) {
           setRooms(rooms.map(r => r.id === room.id ? { ...r, x: newX, width: newW } : r));
         }
       } else if (draggedItem.handle === "bottom") {
-        const newH = Math.max(16, snap(locationY - room.y));
+        const newH = Math.max(16, snap(calcY - room.y));
         setRooms(rooms.map(r => r.id === room.id ? { ...r, height: newH } : r));
       } else if (draggedItem.handle === "top") {
-        const newH = Math.max(16, snap(room.y + room.height - locationY));
-        const newY = snap(locationY);
+        const newH = Math.max(16, snap(room.y + room.height - calcY));
+        const newY = snap(calcY);
         if (newH >= 16) {
           setRooms(rooms.map(r => r.id === room.id ? { ...r, y: newY, height: newH } : r));
         }
       } else if (draggedItem.handle === "move") {
-        const newX = snap(locationX - (draggedItem.offsetX || 0));
-        const newY = snap(locationY - (draggedItem.offsetY || 0));
+        const newX = snap(calcX - (draggedItem.offsetX || 0));
+        const newY = snap(calcY - (draggedItem.offsetY || 0));
 
         // Lego-Style Snap edge detection (15px snap radius)
         let snappedX = newX;
         let snappedY = newY;
         const SNAP_LIMIT = 15;
-        let snapped = false;
 
         for (const other of rooms) {
           if (other.id === room.id) continue;
@@ -670,35 +760,27 @@ export default function FloorPlanScreen({ navigation }: any) {
           // X snap
           if (Math.abs(newX - other.x) < SNAP_LIMIT) {
             snappedX = other.x;
-            snapped = true;
           } else if (Math.abs((newX + room.width) - (other.x + other.width)) < SNAP_LIMIT) {
             snappedX = other.x + other.width - room.width;
-            snapped = true;
           } else if (Math.abs(newX - (other.x + other.width)) < SNAP_LIMIT) {
             snappedX = other.x + other.width;
-            snapped = true;
           } else if (Math.abs((newX + room.width) - other.x) < SNAP_LIMIT) {
             snappedX = other.x - room.width;
-            snapped = true;
           }
 
           // Y snap
           if (Math.abs(newY - other.y) < SNAP_LIMIT) {
             snappedY = other.y;
-            snapped = true;
           } else if (Math.abs((newY + room.height) - (other.y + other.height)) < SNAP_LIMIT) {
             snappedY = other.y + other.height - room.height;
-            snapped = true;
           } else if (Math.abs(newY - (other.y + other.height)) < SNAP_LIMIT) {
             snappedY = other.y + other.height;
-            snapped = true;
           } else if (Math.abs((newY + room.height) - other.y) < SNAP_LIMIT) {
             snappedY = other.y - room.height;
-            snapped = true;
           }
         }
 
-        setRooms(rooms.map(r => r.id === room.id ? { ...r, x: Math.max(0, snappedX), y: Math.max(0, snappedY) } : r));
+        setRooms(rooms.map(r => r.id === room.id ? { ...r, x: snappedX, y: snappedY } : r));
         
         // Move child items along
         if (draggedItem.childFurniture) {
@@ -717,15 +799,15 @@ export default function FloorPlanScreen({ navigation }: any) {
     } else if (draggedItem.type === "furniture") {
       const furn = furniture.find(f => f.id === draggedItem.id);
       if (!furn) return;
-      const newX = snap(locationX - (draggedItem.offsetX || 0));
-      const newY = snap(locationY - (draggedItem.offsetY || 0));
-      setFurniture(furniture.map(f => f.id === furn.id ? { ...f, x: Math.max(0, newX), y: Math.max(0, newY) } : f));
+      const newX = snap(calcX - (draggedItem.offsetX || 0));
+      const newY = snap(calcY - (draggedItem.offsetY || 0));
+      setFurniture(furniture.map(f => f.id === furn.id ? { ...f, x: newX, y: newY } : f));
     } else if (draggedItem.type === "opening") {
       const op = openings.find(o => o.id === draggedItem.id);
       if (!op) return;
       const snapData = getOpeningParentWall(op);
-      const snapX = snapData ? op.x : snap(locationX);
-      const snapY = snapData ? op.y : snap(locationY);
+      const snapX = snapData ? op.x : snap(calcX);
+      const snapY = snapData ? op.y : snap(calcY);
       setOpenings(openings.map(o => o.id === op.id ? { ...o, x: snapX, y: snapY } : o));
     }
   };
@@ -734,6 +816,7 @@ export default function FloorPlanScreen({ navigation }: any) {
     setDraggedItem(null);
     setPinchDist(0);
     setSnapIndicator(null);
+    setIsPanning2D(false);
 
     // Save drawn wall segment to list
     if (tool === "draw_wall" && drawingWall) {
@@ -775,63 +858,161 @@ export default function FloorPlanScreen({ navigation }: any) {
   // Pre-load AutoCAD blueprints
   const loadPresetTemplate = (type: "1bhk" | "2bhk" | "studio") => {
     setSelectedItem(null);
+    let newRooms: Room[] = [];
+    let newOpenings: Opening[] = [];
+    let newFurniture: Furniture[] = [];
+
     if (type === "studio") {
-      setRooms([
+      newRooms = [
         { id: "r1", label: "Studio Hall", x: 40, y: 60, width: 80, height: 100, color: "#FFFFFF05" },
         { id: "r2", label: "Bathroom", x: 120, y: 60, width: 40, height: 50, color: "#FFFFFF05" },
         { id: "r3", label: "Kitchen", x: 120, y: 110, width: 40, height: 50, color: "#FFFFFF05" },
-      ]);
-      setOpenings([
+      ];
+      newOpenings = [
         { id: "o1", type: "door", x: 40, y: 110, width: 28, rotation: 90 },
         { id: "o2", type: "door", x: 120, y: 85, width: 28, rotation: 90 },
         { id: "o3", type: "door", x: 120, y: 135, width: 28, rotation: 90 },
         { id: "o4", type: "window", x: 80, y: 60, width: 36, rotation: 0 },
         { id: "o5", type: "window", x: 160, y: 135, width: 36, rotation: 90 },
-      ]);
-      setFurniture([
-        { id: "f1", type: "bed", x: 50, y: 70, width: 28, height: 36, rotation: 0 },
-        { id: "f2", type: "sofa", x: 90, y: 120, width: 20, height: 32, rotation: 180 },
-      ]);
-      setCustomWalls([]);
+      ];
+      newFurniture = [
+        { id: "f1", type: "bed", x: 50, y: 70, width: 20, height: 26, rotation: 0 },
+        { id: "f2", type: "sofa", x: 90, y: 120, width: 24, height: 12, rotation: 180 },
+      ];
     } else if (type === "1bhk") {
-      setRooms([
+      newRooms = [
         { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
         { id: "r2", label: "Master Bed", x: 120, y: 40, width: 60, height: 80, color: "#FFFFFF05" },
         { id: "r3", label: "Kitchen", x: 40, y: 120, width: 80, height: 60, color: "#FFFFFF05" },
         { id: "r4", label: "Bathroom", x: 120, y: 120, width: 60, height: 60, color: "#FFFFFF05" },
-      ]);
-      setOpenings([
+      ];
+      newOpenings = [
         { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
         { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
         { id: "o3", type: "door", x: 120, y: 150, width: 28, rotation: 90 },
         { id: "o4", type: "window", x: 80, y: 40, width: 36, rotation: 0 },
         { id: "o5", type: "window", x: 150, y: 40, width: 36, rotation: 0 },
-      ]);
-      setFurniture([
-        { id: "f1", type: "bed", x: 135, y: 55, width: 32, height: 48, rotation: 0 },
-        { id: "f2", type: "sofa", x: 55, y: 50, width: 20, height: 48, rotation: 0 },
-      ]);
-      setCustomWalls([]);
+      ];
+      newFurniture = [
+        { id: "f1", type: "bed", x: 135, y: 55, width: 20, height: 26, rotation: 0 },
+        { id: "f2", type: "sofa", x: 55, y: 50, width: 12, height: 24, rotation: 0 },
+      ];
     } else if (type === "2bhk") {
-      setRooms([
+      newRooms = [
         { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
         { id: "r2", label: "Master Bed", x: 120, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
         { id: "r3", label: "Kids Bed", x: 40, y: 120, width: 80, height: 80, color: "#FFFFFF05" },
         { id: "r4", label: "Kitchen", x: 120, y: 120, width: 50, height: 80, color: "#FFFFFF05" },
         { id: "r5", label: "Toilet", x: 170, y: 120, width: 30, height: 80, color: "#FFFFFF05" },
-      ]);
-      setOpenings([
+      ];
+      newOpenings = [
         { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
         { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
         { id: "o3", type: "door", x: 80, y: 120, width: 28, rotation: 0 },
         { id: "o4", type: "door", x: 145, y: 120, width: 28, rotation: 0 },
         { id: "o5", type: "door", x: 170, y: 150, width: 28, rotation: 90 },
-      ]);
-      setFurniture([
-        { id: "f1", type: "bed", x: 140, y: 50, width: 32, height: 48, rotation: 0 },
-        { id: "f2", type: "bed", x: 50, y: 130, width: 32, height: 48, rotation: 0 },
-      ]);
-      setCustomWalls([]);
+      ];
+      newFurniture = [
+        { id: "f1", type: "bed", x: 140, y: 50, width: 20, height: 26, rotation: 0 },
+        { id: "f2", type: "bed", x: 50, y: 130, width: 20, height: 26, rotation: 0 },
+      ];
+    }
+
+    setRooms(newRooms);
+    setOpenings(newOpenings);
+    setFurniture(newFurniture);
+    setCustomWalls([]);
+
+    setTimeout(() => {
+      centerPlan2D(newRooms, []);
+    }, 100);
+  };
+
+  // Mouse Web Simulation Wrapper
+  const handleMouseDown = (e: any) => {
+    if (Platform.OS !== "web") return;
+    const rect = e.currentTarget.getBoundingClientRect ? e.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
+    const locationX = e.clientX - rect.left;
+    const locationY = e.clientY - rect.top;
+    
+    setIsMouseDown(true);
+    handleTouchStart({
+      nativeEvent: {
+        locationX,
+        locationY,
+        touches: []
+      }
+    });
+  };
+
+  const handleMouseMove = (e: any) => {
+    if (Platform.OS !== "web" || !isMouseDown) return;
+    const rect = e.currentTarget.getBoundingClientRect ? e.currentTarget.getBoundingClientRect() : { left: 0, top: 0 };
+    const locationX = e.clientX - rect.left;
+    const locationY = e.clientY - rect.top;
+
+    handleTouchMove({
+      nativeEvent: {
+        locationX,
+        locationY,
+        touches: []
+      }
+    });
+  };
+
+  const handleMouseUp = (e: any) => {
+    if (Platform.OS !== "web") return;
+    setIsMouseDown(false);
+    handleTouchEnd();
+  };
+
+  const handleMouseLeave = (e: any) => {
+    if (Platform.OS !== "web") return;
+    setIsMouseDown(false);
+    handleTouchEnd();
+  };
+
+  const handleWheel = (e: any) => {
+    if (Platform.OS !== "web") return;
+    // zoom factor
+    const zoomFactor = e.deltaY < 0 ? 1.15 : 0.85;
+    if (viewMode === "2d") {
+      setZoom2D(prev => Math.max(0.1, Math.min(5.0, prev * zoomFactor)));
+    } else if (viewMode === "3d") {
+      setZoomScale(prev => Math.max(0.1, Math.min(3.0, prev * zoomFactor)));
+    }
+  };
+
+  const handleZoomIn = () => {
+    if (viewMode === "2d") {
+      setZoom2D((prev) => Math.min(5.0, prev * 1.2));
+    } else if (viewMode === "3d") {
+      setZoomScale((prev) => Math.min(3.0, prev * 1.2));
+    }
+  };
+
+  const handleZoomOut = () => {
+    if (viewMode === "2d") {
+      setZoom2D((prev) => Math.max(0.1, prev / 1.2));
+    } else if (viewMode === "3d") {
+      setZoomScale((prev) => Math.max(0.1, prev / 1.2));
+    }
+  };
+
+  const handleResetView = () => {
+    if (viewMode === "2d") {
+      setZoom2D(1.0);
+      centerPlan2D();
+    } else if (viewMode === "3d") {
+      setZoomScale(0.8);
+      setOrbitYaw(45);
+      setOrbitPitch(35);
+    } else if (viewMode === "walkthrough") {
+      setCamX(20);
+      setCamY(20);
+      setCamZ(5.0);
+      setWalkYaw(0);
+      setWalkPitch(0);
     }
   };
 
@@ -848,7 +1029,7 @@ export default function FloorPlanScreen({ navigation }: any) {
     if (viewMode === "3d") {
       // Orbit camera on a sphere around the layout center
       const center = getLayoutCenter();
-      const radius = 55; // Camera radius distance
+      const radius = 55 / zoomScale; // Camera radius distance scales with zoomScale
       const yawRad = (orbitYaw * Math.PI) / 180;
       const pitchRad = (orbitPitch * Math.PI) / 180;
 
@@ -1138,6 +1319,13 @@ export default function FloorPlanScreen({ navigation }: any) {
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        {...({
+          onMouseDown: handleMouseDown,
+          onMouseMove: handleMouseMove,
+          onMouseUp: handleMouseUp,
+          onMouseLeave: handleMouseLeave,
+          onWheel: handleWheel,
+        } as any)}
         style={[styles.viewport, { height: viewportHeight }]}
       >
         {viewMode === "2d" && (
@@ -1148,146 +1336,148 @@ export default function FloorPlanScreen({ navigation }: any) {
               </Pattern>
             </Defs>
             
-            {/* Draw Grid Background */}
-            <Rect width={windowWidth} height={viewportHeight} fill="url(#cadGrid)" />
+            <G transform={`translate(${pan2D.x}, ${pan2D.y}) scale(${zoom2D})`}>
+              {/* Draw Grid Background */}
+              <Rect x={-5000} y={-5000} width={10000} height={10000} fill="url(#cadGrid)" />
 
-            {/* 1. Floor Slabs */}
-            {rooms.map((room) => {
-              const isSelected = selectedItem?.type === "room" && selectedItem?.id === room.id;
-              const rWidthFt = room.width / PIXELS_PER_FOOT;
-              const rHeightFt = room.height / PIXELS_PER_FOOT;
+              {/* 1. Floor Slabs */}
+              {rooms.map((room) => {
+                const isSelected = selectedItem?.type === "room" && selectedItem?.id === room.id;
+                const rWidthFt = room.width / PIXELS_PER_FOOT;
+                const rHeightFt = room.height / PIXELS_PER_FOOT;
 
-              return (
-                <G key={room.id}>
-                  <Rect
-                    x={room.x}
-                    y={room.y}
-                    width={room.width}
-                    height={room.height}
-                    fill={isSelected ? "rgba(255, 159, 28, 0.05)" : "transparent"}
-                    stroke={isSelected ? COLORS.cadSelect : COLORS.cadWallBorder}
-                    strokeWidth={isSelected ? 2.5 : 1.5}
-                  />
-                  {/* Room Label & Area Callout */}
-                  <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 - 4} textAnchor="middle" fontSize={11} fontWeight="bold" fill="#ECEFF1">
-                    {room.label}
-                  </SvgText>
-                  <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 + 10} textAnchor="middle" fontSize={9} fill={COLORS.cadDimension}>
-                    {rWidthFt}' x {rHeightFt}' ({getRoomArea(room)} sqft)
-                  </SvgText>
+                return (
+                  <G key={room.id}>
+                    <Rect
+                      x={room.x}
+                      y={room.y}
+                      width={room.width}
+                      height={room.height}
+                      fill={isSelected ? "rgba(255, 159, 28, 0.05)" : "transparent"}
+                      stroke={isSelected ? COLORS.cadSelect : COLORS.cadWallBorder}
+                      strokeWidth={isSelected ? 2.5 / zoom2D : 1.5 / zoom2D}
+                    />
+                    {/* Room Label & Area Callout */}
+                    <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 - 4 / zoom2D} textAnchor="middle" fontSize={Math.max(8, 11 / zoom2D)} fontWeight="bold" fill="#ECEFF1">
+                      {room.label}
+                    </SvgText>
+                    <SvgText x={room.x + room.width / 2} y={room.y + room.height / 2 + 10 / zoom2D} textAnchor="middle" fontSize={Math.max(6, 9 / zoom2D)} fill={COLORS.cadDimension}>
+                      {rWidthFt}' x {rHeightFt}' ({getRoomArea(room)} sqft)
+                    </SvgText>
 
-                  {/* Wall resizing knobs */}
-                  {isSelected && (
-                    <G>
-                      <Circle cx={room.x + room.width} cy={room.y + room.height / 2} r={7} fill={COLORS.cadSelect} />
-                      <Circle cx={room.x} cy={room.y + room.height / 2} r={7} fill={COLORS.cadSelect} />
-                      <Circle cx={room.x + room.width / 2} cy={room.y + room.height} r={7} fill={COLORS.cadSelect} />
-                      <Circle cx={room.x + room.width / 2} cy={room.y} r={7} fill={COLORS.cadSelect} />
+                    {/* Wall resizing knobs */}
+                    {isSelected && (
+                      <G>
+                        <Circle cx={room.x + room.width} cy={room.y + room.height / 2} r={7 / zoom2D} fill={COLORS.cadSelect} />
+                        <Circle cx={room.x} cy={room.y + room.height / 2} r={7 / zoom2D} fill={COLORS.cadSelect} />
+                        <Circle cx={room.x + room.width / 2} cy={room.y + room.height} r={7 / zoom2D} fill={COLORS.cadSelect} />
+                        <Circle cx={room.x + room.width / 2} cy={room.y} r={7 / zoom2D} fill={COLORS.cadSelect} />
+                      </G>
+                    )}
+                  </G>
+                );
+              })}
+
+              {/* 2. Custom Drawn Walls */}
+              {customWalls.map((w) => {
+                const isSelected = selectedItem?.type === "wall" && selectedItem?.id === w.id;
+                const dx = w.x2 - w.x1;
+                const dy = w.y2 - w.y1;
+                const lengthFt = (Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_FOOT).toFixed(1);
+                
+                // Angle for writing text parallel to wall segment
+                const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                const midX = (w.x1 + w.x2) / 2;
+                const midY = (w.y1 + w.y2) / 2;
+
+                return (
+                  <G key={w.id}>
+                    {/* AutoCAD Wall joins: strokeLinecap="round" resolves wall corners beautifully */}
+                    <Line
+                      x1={w.x1}
+                      y1={w.y1}
+                      x2={w.x2}
+                      y2={w.y2}
+                      stroke={isSelected ? COLORS.cadSelect : COLORS.cadWall}
+                      strokeWidth={6 / zoom2D}
+                      strokeLinecap="round"
+                    />
+                    {/* Dimension Text overlay */}
+                    <G transform={`translate(${midX}, ${midY - 8 / zoom2D}) rotate(${angle}, 0, 0)`}>
+                      <SvgText textAnchor="middle" fontSize={Math.max(6, 9 / zoom2D)} fontWeight="bold" fill={COLORS.cadDimension}>
+                        {lengthFt}' ft
+                      </SvgText>
                     </G>
-                  )}
-                </G>
-              );
-            })}
+                  </G>
+                );
+              })}
 
-            {/* 2. Custom Drawn Walls */}
-            {customWalls.map((w) => {
-              const isSelected = selectedItem?.type === "wall" && selectedItem?.id === w.id;
-              const dx = w.x2 - w.x1;
-              const dy = w.y2 - w.y1;
-              const lengthFt = (Math.sqrt(dx * dx + dy * dy) / PIXELS_PER_FOOT).toFixed(1);
-              
-              // Angle for writing text parallel to wall segment
-              const angle = Math.atan2(dy, dx) * (180 / Math.PI);
-              const midX = (w.x1 + w.x2) / 2;
-              const midY = (w.y1 + w.y2) / 2;
+              {/* 3. Snapped Windows and Doors */}
+              {openings.map((op) => {
+                const isSelected = selectedItem?.type === "opening" && selectedItem?.id === op.id;
+                return (
+                  <G key={op.id} transform={`rotate(${op.rotation}, ${op.x}, ${op.y})`}>
+                    {op.type === "door" ? (
+                      <G>
+                        <Path d={`M ${op.x} ${op.y} A ${op.width} ${op.width} 0 0 1 ${op.x + op.width} ${op.y + op.width}`} fill="none" stroke={COLORS.cadDoor} strokeWidth={1 / zoom2D} strokeDasharray={`${2/zoom2D},${2/zoom2D}`} />
+                        <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.cadSelect : COLORS.cadDoor} strokeWidth={3.5 / zoom2D} />
+                        <Circle cx={op.x} cy={op.y} r={4 / zoom2D} fill={COLORS.cadDoor} />
+                      </G>
+                    ) : (
+                      <Rect x={op.x - op.width / 2} y={op.y - 4 / zoom2D} width={op.width} height={8 / zoom2D} fill="#1E293B" stroke={isSelected ? COLORS.cadSelect : COLORS.cadWindow} strokeWidth={2 / zoom2D} />
+                    )}
+                  </G>
+                );
+              })}
 
-              return (
-                <G key={w.id}>
-                  {/* AutoCAD Wall joins: strokeLinecap="round" resolves wall corners beautifully */}
-                  <Line
-                    x1={w.x1}
-                    y1={w.y1}
-                    x2={w.x2}
-                    y2={w.y2}
-                    stroke={isSelected ? COLORS.cadSelect : COLORS.cadWall}
-                    strokeWidth={6}
-                    strokeLinecap="round"
-                  />
-                  {/* Dimension Text overlay */}
-                  <G transform={`translate(${midX}, ${midY - 8}) rotate(${angle}, 0, 0)`}>
-                    <SvgText textAnchor="middle" fontSize={8} fontWeight="bold" fill={COLORS.cadDimension}>
-                      {lengthFt}' ft
+              {/* 4. Furniture Elements */}
+              {furniture.map((f) => {
+                const isSelected = selectedItem?.type === "furniture" && selectedItem?.id === f.id;
+                return (
+                  <G key={f.id} transform={`rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})`}>
+                    <Rect x={f.x} y={f.y} width={f.width} height={f.height} rx={2} fill="#27303E" stroke={isSelected ? COLORS.cadSelect : "#5A677C"} strokeWidth={1.2 / zoom2D} />
+                    <SvgText x={f.x + f.width / 2} y={f.y + f.height / 2 + (f.height < 12 ? 2 : 3) / zoom2D} textAnchor="middle" fontSize={f.width < 12 ? Math.max(5, 7 / zoom2D) : Math.max(6, 8 / zoom2D)} fill="#94A3B8" fontWeight="bold">
+                      {f.type === "toilet" ? "WC" : f.type === "sink" ? "SK" : f.type === "chair" ? "CH" : f.type.toUpperCase()}
                     </SvgText>
                   </G>
-                </G>
-              );
-            })}
+                );
+              })}
 
-            {/* 3. Snapped Windows and Doors */}
-            {openings.map((op) => {
-              const isSelected = selectedItem?.type === "opening" && selectedItem?.id === op.id;
-              return (
-                <G key={op.id} transform={`rotate(${op.rotation}, ${op.x}, ${op.y})`}>
-                  {op.type === "door" ? (
-                    <G>
-                      <Path d={`M ${op.x} ${op.y} A ${op.width} ${op.width} 0 0 1 ${op.x + op.width} ${op.y + op.width}`} fill="none" stroke={COLORS.cadDoor} strokeWidth={1} strokeDasharray="2,2" />
-                      <Line x1={op.x} y1={op.y} x2={op.x} y2={op.y + op.width} stroke={isSelected ? COLORS.cadSelect : COLORS.cadDoor} strokeWidth={3.5} />
-                      <Circle cx={op.x} cy={op.y} r={4} fill={COLORS.cadDoor} />
-                    </G>
-                  ) : (
-                    <Rect x={op.x - op.width / 2} y={op.y - 4} width={op.width} height={8} fill="#1E293B" stroke={isSelected ? COLORS.cadSelect : COLORS.cadWindow} strokeWidth={2} />
-                  )}
-                </G>
-              );
-            })}
-
-            {/* 4. Furniture Elements */}
-            {furniture.map((f) => {
-              const isSelected = selectedItem?.type === "furniture" && selectedItem?.id === f.id;
-              return (
-                <G key={f.id} transform={`rotate(${f.rotation}, ${f.x + f.width / 2}, ${f.y + f.height / 2})`}>
-                  <Rect x={f.x} y={f.y} width={f.width} height={f.height} rx={2} fill="#27303E" stroke={isSelected ? COLORS.cadSelect : "#5A677C"} strokeWidth={1.2} />
-                  <SvgText x={f.x + f.width / 2} y={f.y + f.height / 2 + 3} textAnchor="middle" fontSize={8} fill="#94A3B8" fontWeight="bold">
-                    {f.type.toUpperCase()}
+              {/* Live Free Hand Drawing Preview */}
+              {tool === "draw_wall" && drawingWall && (
+                <G>
+                  <Line
+                    x1={drawingWall.x1}
+                    y1={drawingWall.y1}
+                    x2={drawingWall.x2}
+                    y2={drawingWall.y2}
+                    stroke={COLORS.cadDimension}
+                    strokeWidth={6 / zoom2D}
+                    strokeDasharray={`${4/zoom2D},${4/zoom2D}`}
+                    strokeLinecap="round"
+                  />
+                  {/* Real-time dimension marker label */}
+                  <SvgText
+                    x={(drawingWall.x1 + drawingWall.x2) / 2}
+                    y={(drawingWall.y1 + drawingWall.y2) / 2 - 12 / zoom2D}
+                    textAnchor="middle"
+                    fontSize={Math.max(7, 10 / zoom2D)}
+                    fontWeight="bold"
+                    fill={COLORS.cadDimension}
+                  >
+                    {(Math.sqrt(Math.pow(drawingWall.x2 - drawingWall.x1, 2) + Math.pow(drawingWall.y2 - drawingWall.y1, 2)) / PIXELS_PER_FOOT).toFixed(1)}' ft
                   </SvgText>
                 </G>
-              );
-            })}
+              )}
 
-            {/* Live Free Hand Drawing Preview */}
-            {tool === "draw_wall" && drawingWall && (
-              <G>
-                <Line
-                  x1={drawingWall.x1}
-                  y1={drawingWall.y1}
-                  x2={drawingWall.x2}
-                  y2={drawingWall.y2}
-                  stroke={COLORS.cadDimension}
-                  strokeWidth={6}
-                  strokeDasharray="4,4"
-                  strokeLinecap="round"
-                />
-                {/* Real-time dimension marker label */}
-                <SvgText
-                  x={(drawingWall.x1 + drawingWall.x2) / 2}
-                  y={(drawingWall.y1 + drawingWall.y2) / 2 - 12}
-                  textAnchor="middle"
-                  fontSize={10}
-                  fontWeight="bold"
-                  fill={COLORS.cadDimension}
-                >
-                  {(Math.sqrt(Math.pow(drawingWall.x2 - drawingWall.x1, 2) + Math.pow(drawingWall.y2 - drawingWall.y1, 2)) / PIXELS_PER_FOOT).toFixed(1)}' ft
-                </SvgText>
-              </G>
-            )}
-
-            {/* Object snap alignment marker */}
-            {snapIndicator && (
-              <G>
-                <Rect x={snapIndicator.x - 6} y={snapIndicator.y - 6} width={12} height={12} fill="none" stroke="#22C55E" strokeWidth={2} />
-                <Circle cx={snapIndicator.x} cy={snapIndicator.y} r={2} fill="#22C55E" />
-              </G>
-            )}
+              {/* Object snap alignment marker */}
+              {snapIndicator && (
+                <G>
+                  <Rect x={snapIndicator.x - 6 / zoom2D} y={snapIndicator.y - 6 / zoom2D} width={12 / zoom2D} height={12 / zoom2D} fill="none" stroke="#22C55E" strokeWidth={2 / zoom2D} />
+                  <Circle cx={snapIndicator.x} cy={snapIndicator.y} r={2 / zoom2D} fill="#22C55E" />
+                </G>
+              )}
+            </G>
           </Svg>
         )}
 
@@ -1355,39 +1545,76 @@ export default function FloorPlanScreen({ navigation }: any) {
         )}
       </View>
 
+      {/* FLOATING ZOOM & PAN CONTROLS */}
+      {(viewMode === "2d" || viewMode === "3d" || viewMode === "walkthrough") && (
+        <View style={styles.zoomControlsContainer}>
+          <TouchableOpacity style={styles.zoomBtn} onPress={handleZoomIn}>
+            <Ionicons name="add-outline" size={20} color={COLORS.white} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.zoomBtn} onPress={handleZoomOut}>
+            <Ionicons name="remove-outline" size={20} color={COLORS.white} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.zoomBtn} onPress={handleResetView}>
+            <Ionicons name="locate-outline" size={20} color={COLORS.cadSelect} />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* FLOATING ACTION TOOLBAR OVERLAY */}
       {viewMode === "2d" && (
         <View style={styles.toolbarOverlay}>
-          <TouchableOpacity
-            style={[styles.toolBtn, tool === "select" && styles.toolBtnActive]}
-            onPress={() => setTool("select")}
-          >
-            <Ionicons name="hand-right-outline" size={20} color={COLORS.white} />
-            <Text style={styles.toolBtnText}>Select</Text>
-          </TouchableOpacity>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.toolbarScrollContent}>
+            <TouchableOpacity
+              style={[styles.toolBtn, tool === "select" && styles.toolBtnActive]}
+              onPress={() => setTool("select")}
+            >
+              <Ionicons name="hand-right-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>Select</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.toolBtn, tool === "draw_wall" && styles.toolBtnActive]}
-            onPress={() => { setTool("draw_wall"); setSelectedItem(null); }}
-          >
-            <Ionicons name="brush-outline" size={20} color={COLORS.white} />
-            <Text style={styles.toolBtnText}>Draw Wall</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toolBtn, tool === "draw_wall" && styles.toolBtnActive]}
+              onPress={() => { setTool("draw_wall"); setSelectedItem(null); }}
+            >
+              <Ionicons name="brush-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>Draw Wall</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.toolBtn} onPress={() => setCustomRoomModal(true)}>
-            <Ionicons name="add-circle-outline" size={20} color={COLORS.white} />
-            <Text style={styles.toolBtnText}>Add Room</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.toolBtn} onPress={() => setCustomRoomModal(true)}>
+              <Ionicons name="add-circle-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>Add Room</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("bed")}>
-            <Ionicons name="bed-outline" size={20} color={COLORS.white} />
-            <Text style={styles.toolBtnText}>+ Bed</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("bed")}>
+              <Ionicons name="bed-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Bed</Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("sofa")}>
-            <Ionicons name="easel-outline" size={20} color={COLORS.white} />
-            <Text style={styles.toolBtnText}>+ Sofa</Text>
-          </TouchableOpacity>
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("sofa")}>
+              <Ionicons name="easel-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Sofa</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("table")}>
+              <Ionicons name="grid-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Table</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("toilet")}>
+              <Ionicons name="water-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Toilet</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("sink")}>
+              <Ionicons name="flask-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Sink</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("chair")}>
+              <Ionicons name="cube-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Chair</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
       )}
 
@@ -1670,24 +1897,56 @@ const styles = StyleSheet.create({
     bottom: 24,
     left: 20,
     right: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
     backgroundColor: "rgba(15, 18, 21, 0.95)",
     borderWidth: 1,
     borderColor: "#2D343B",
     borderRadius: 16,
-    padding: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
     elevation: 5,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 6,
   },
+  toolbarScrollContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    gap: 12,
+  },
   toolBtn: {
-    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 4,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    minWidth: 70,
+  },
+  zoomControlsContainer: {
+    position: "absolute",
+    right: 20,
+    top: 140,
+    backgroundColor: "rgba(15, 18, 21, 0.9)",
+    borderWidth: 1,
+    borderColor: "#2D343B",
+    borderRadius: 8,
+    padding: 6,
+    gap: 8,
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  zoomBtn: {
+    width: 36,
+    height: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#16191C",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#3D4854",
   },
   toolBtnActive: {
     backgroundColor: "#22272E",
