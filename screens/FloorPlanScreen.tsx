@@ -1201,6 +1201,78 @@ export default function FloorPlanScreen({ navigation }: any) {
   const render3DLayout = () => {
     const renderQueue: { depth: number; key: string; element: React.ReactNode }[] = [];
 
+    // 0. Ground Plane and AutoCAD-Style Grid
+    const center = getLayoutCenter();
+    const groundSize = 120; // 120 ft radius ground plane
+    const gridSpacing = 10; // reference line every 10 ft
+
+    const gA = projectPoint3D(center.x - groundSize, center.y - groundSize, -0.05);
+    const gB = projectPoint3D(center.x + groundSize, center.y - groundSize, -0.05);
+    const gC = projectPoint3D(center.x + groundSize, center.y + groundSize, -0.05);
+    const gD = projectPoint3D(center.x - groundSize, center.y + groundSize, -0.05);
+
+    if (gA.x !== -9999 && gB.x !== -9999 && gC.x !== -9999 && gD.x !== -9999) {
+      const avgDepth = (gA.depth + gB.depth + gC.depth + gD.depth) / 4 + 100;
+      renderQueue.push({
+        depth: avgDepth,
+        key: "ground_plane",
+        element: (
+          <Path
+            d={`M ${gA.x} ${gA.y} L ${gB.x} ${gB.y} L ${gC.x} ${gC.y} L ${gD.x} ${gD.y} Z`}
+            fill="#15181C" // Subtle dark blueprint charcoal ground
+            stroke="#272D35"
+            strokeWidth={0.5}
+          />
+        ),
+      });
+    }
+
+    // Grid lines parallel to Y-axis
+    for (let xOffset = -groundSize; xOffset <= groundSize; xOffset += gridSpacing) {
+      const p1 = projectPoint3D(center.x + xOffset, center.y - groundSize, -0.05);
+      const p2 = projectPoint3D(center.x + xOffset, center.y + groundSize, -0.05);
+      if (p1.x !== -9999 && p2.x !== -9999) {
+        const avgDepth = (p1.depth + p2.depth) / 2 + 90;
+        renderQueue.push({
+          depth: avgDepth,
+          key: `grid_x_${xOffset}`,
+          element: (
+            <Line
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke={xOffset === 0 ? "rgba(0, 245, 212, 0.25)" : "rgba(71, 85, 105, 0.15)"} // Highlight center cyan axis
+              strokeWidth={xOffset === 0 ? 1.2 : 0.6}
+            />
+          ),
+        });
+      }
+    }
+
+    // Grid lines parallel to X-axis
+    for (let yOffset = -groundSize; yOffset <= groundSize; yOffset += gridSpacing) {
+      const p1 = projectPoint3D(center.x - groundSize, center.y + yOffset, -0.05);
+      const p2 = projectPoint3D(center.x + groundSize, center.y + yOffset, -0.05);
+      if (p1.x !== -9999 && p2.x !== -9999) {
+        const avgDepth = (p1.depth + p2.depth) / 2 + 90;
+        renderQueue.push({
+          depth: avgDepth,
+          key: `grid_y_${yOffset}`,
+          element: (
+            <Line
+              x1={p1.x}
+              y1={p1.y}
+              x2={p2.x}
+              y2={p2.y}
+              stroke={yOffset === 0 ? "rgba(0, 245, 212, 0.25)" : "rgba(71, 85, 105, 0.15)"}
+              strokeWidth={yOffset === 0 ? 1.2 : 0.6}
+            />
+          ),
+        });
+      }
+    }
+
     // 1. Draw floor slabs
     rooms.forEach((room) => {
       const rx = room.x / 4;
