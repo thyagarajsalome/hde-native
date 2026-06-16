@@ -1203,14 +1203,14 @@ export default function FloorPlanScreen({ navigation }: any) {
       const orthoScale = 12 * zoomScale;
       return {
         x: camXCoord * orthoScale + windowWidth / 2,
-        y: camYCoord * orthoScale + viewportHeight / 2,
+        y: viewportHeight / 2 - camYCoord * orthoScale, // Flipped Y to map physical UP to SVG top (smaller Y)
         depth, // still return depth for painter's algorithm sorting
       };
     }
 
     return {
       x: depth > 0.1 ? (camXCoord / depth) * FOV + windowWidth / 2 : -9999,
-      y: depth > 0.1 ? (camYCoord / depth) * FOV + viewportHeight / 2 : -9999,
+      y: depth > 0.1 ? viewportHeight / 2 - (camYCoord / depth) * FOV : -9999, // Flipped Y to map physical UP to SVG top (smaller Y)
       depth,
     };
   };
