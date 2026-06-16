@@ -1129,15 +1129,15 @@ export default function FloorPlanScreen({ navigation }: any) {
     let activeCamX = camX;
     let activeCamY = camY;
     let activeCamZ = camZ;
-    let activeYaw = walkYaw;
-    let activePitch = walkPitch;
+    let fx = 0, fy = 0, fz = 0;
+
     const FOV = 280;
     const isOrtho = projectionMode === "orthographic" && viewMode === "3d";
 
     if (viewMode === "3d") {
       // Orbit camera on a sphere around the layout center
       const center = getLayoutCenter();
-      // For orthographic, distance (radius) doesn't change perspective scale, so keep it constant to avoid division scaling issues
+      // For orthographic, distance (radius) doesn't change perspective scale, so keep it constant
       const radius = isOrtho ? 55 : (55 / zoomScale);
       const yawRad = (orbitYaw * Math.PI) / 180;
       const pitchRad = (orbitPitch * Math.PI) / 180;
@@ -1146,39 +1146,73 @@ export default function FloorPlanScreen({ navigation }: any) {
       activeCamY = center.y + radius * Math.sin(yawRad) * Math.cos(pitchRad);
       activeCamZ = 4.5 + radius * Math.sin(pitchRad);
 
-      activeYaw = orbitYaw + 180;
-      activePitch = -orbitPitch;
+      // Forward look vector pointing from Camera to Target Center
+      const dxLook = center.x - activeCamX;
+      const dyLook = center.y - activeCamY;
+      const dzLook = 4.5 - activeCamZ;
+      const lenLook = Math.sqrt(dxLook * dxLook + dyLook * dyLook + dzLook * dzLook);
+      if (lenLook > 0.0001) {
+        fx = dxLook / lenLook;
+        fy = dyLook / lenLook;
+        fz = dzLook / lenLook;
+      } else {
+        fx = 0;
+        fy = -1;
+        fz = 0;
+      }
+    } else {
+      // Walkthrough mode: forward gaze vector based on walkYaw and walkPitch
+      const yawRad = (walkYaw * Math.PI) / 180;
+      const pitchRad = (walkPitch * Math.PI) / 180;
+      fx = Math.sin(yawRad) * Math.cos(pitchRad);
+      fy = -Math.cos(yawRad) * Math.cos(pitchRad);
+      fz = Math.sin(pitchRad);
     }
 
-    // 1. Translate point relative to camera
+    // Camera LookAt coordinate system derivation:
+    // Right Vector R = F x U (where U = (0, 0, 1) is world up)
+    // This mathematically guarantees zero roll (horizon is always perfectly horizontal, no tilting)
+    let rx = fy;
+    let ry = -fx;
+    let lenR = Math.sqrt(rx * rx + ry * ry);
+    if (lenR < 0.0001) {
+      // Fallback looking straight up/down to prevent division by zero
+      rx = 1;
+      ry = 0;
+      lenR = 1;
+    } else {
+      rx = rx / lenR;
+      ry = ry / lenR;
+    }
+
+    // Up Vector V = R x F
+    const vx = ry * fz;
+    const vy = -rx * fz;
+    const vz = rx * fy - ry * fx;
+
+    // Translate point relative to camera
     const dx = x - activeCamX;
     const dy = y - activeCamY;
     const dz = z - activeCamZ;
 
-    // 2. Rotate yaw around Z-axis
-    const yawRad = (activeYaw * Math.PI) / 180;
-    const rotX = dx * Math.cos(yawRad) - dy * Math.sin(yawRad);
-    const rotY = dx * Math.sin(yawRad) + dy * Math.cos(yawRad);
-
-    // 3. Rotate pitch around X-axis (tilt camera)
-    const pitchRad = (activePitch * Math.PI) / 180;
-    const rotZ = dz * Math.cos(pitchRad) - rotY * Math.sin(pitchRad);
-    const depth = dz * Math.sin(pitchRad) + rotY * Math.cos(pitchRad);
+    // Transform point to camera space
+    const camXCoord = dx * rx + dy * ry;
+    const camYCoord = dx * vx + dy * vy + dz * vz;
+    const depth = dx * fx + dy * fy + dz * fz;
 
     if (isOrtho) {
-      // Orthographic projection: parallel projection without perspective division.
-      // Zoom is achieved by linear scaling multiplier of rotX and rotZ.
+      // Orthographic projection: parallel projection without perspective depth division
       const orthoScale = 12 * zoomScale;
       return {
-        x: rotX * orthoScale + windowWidth / 2,
-        y: rotZ * orthoScale + viewportHeight / 2,
-        depth, // still return depth for depth sorting
+        x: camXCoord * orthoScale + windowWidth / 2,
+        y: camYCoord * orthoScale + viewportHeight / 2,
+        depth, // still return depth for painter's algorithm sorting
       };
     }
 
     return {
-      x: depth > 0.1 ? (rotX / depth) * FOV + windowWidth / 2 : -9999,
-      y: depth > 0.1 ? (rotZ / depth) * FOV + viewportHeight / 2 : -9999,
+      x: depth > 0.1 ? (camXCoord / depth) * FOV + windowWidth / 2 : -9999,
+      y: depth > 0.1 ? (camYCoord / depth) * FOV + viewportHeight / 2 : -9999,
       depth,
     };
   };
