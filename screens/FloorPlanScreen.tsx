@@ -947,40 +947,51 @@ export default function FloorPlanScreen({ navigation }: any) {
       ];
     } else if (type === "1bhk") {
       newRooms = [
-        { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
-        { id: "r2", label: "Master Bed", x: 120, y: 40, width: 60, height: 80, color: "#FFFFFF05" },
-        { id: "r3", label: "Kitchen", x: 40, y: 120, width: 80, height: 60, color: "#FFFFFF05" },
-        { id: "r4", label: "Bathroom", x: 120, y: 120, width: 60, height: 60, color: "#FFFFFF05" },
+        { id: "r1", label: "Living Room", x: 40, y: 40, width: 64, height: 80, color: "#FFFFFF05" },
+        { id: "r2", label: "Master Bed", x: 104, y: 40, width: 56, height: 64, color: "#FFFFFF05" },
+        { id: "r3", label: "Kitchen", x: 104, y: 104, width: 56, height: 56, color: "#FFFFFF05" },
+        { id: "r4", label: "Bathroom", x: 40, y: 120, width: 64, height: 40, color: "#FFFFFF05" },
       ];
       newOpenings = [
-        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 120, y: 150, width: 28, rotation: 90 },
-        { id: "o4", type: "window", x: 80, y: 40, width: 36, rotation: 0 },
-        { id: "o5", type: "window", x: 150, y: 40, width: 36, rotation: 0 },
+        { id: "o1", type: "door", x: 40, y: 70, width: 28, rotation: 270 },
+        { id: "o2", type: "door", x: 104, y: 56, width: 28, rotation: 270 },
+        { id: "o3", type: "door", x: 104, y: 118, width: 28, rotation: 270 },
+        { id: "o4", type: "door", x: 64, y: 120, width: 28, rotation: 0 },
+        { id: "o5", type: "window", x: 72, y: 40, width: 36, rotation: 0 },
+        { id: "o6", type: "window", x: 132, y: 40, width: 36, rotation: 0 },
+        { id: "o7", type: "window", x: 160, y: 132, width: 36, rotation: 90 },
+        { id: "o8", type: "window", x: 40, y: 140, width: 28, rotation: 270 },
       ];
       newFurniture = [
-        { id: "f1", type: "bed", x: 135, y: 55, width: 20, height: 26, rotation: 0 },
-        { id: "f2", type: "sofa", x: 55, y: 50, width: 12, height: 24, rotation: 0 },
+        { id: "f1", type: "bed", x: 132, y: 70, width: 20, height: 26, rotation: 0 },
+        { id: "f2", type: "sofa", x: 55, y: 45, width: 24, height: 12, rotation: 0 },
+        { id: "f3", type: "toilet", x: 90, y: 145, width: 8, height: 10, rotation: 90 },
       ];
     } else if (type === "2bhk") {
       newRooms = [
-        { id: "r1", label: "Living Room", x: 40, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
-        { id: "r2", label: "Master Bed", x: 120, y: 40, width: 80, height: 80, color: "#FFFFFF05" },
-        { id: "r3", label: "Kids Bed", x: 40, y: 120, width: 80, height: 80, color: "#FFFFFF05" },
-        { id: "r4", label: "Kitchen", x: 120, y: 120, width: 50, height: 80, color: "#FFFFFF05" },
-        { id: "r5", label: "Toilet", x: 170, y: 120, width: 30, height: 80, color: "#FFFFFF05" },
+        { id: "r1", label: "Living Room", x: 40, y: 40, width: 60, height: 80, color: "#FFFFFF05" },
+        { id: "r2", label: "Kitchen", x: 100, y: 40, width: 60, height: 48, color: "#FFFFFF05" },
+        { id: "r3", label: "Bathroom", x: 100, y: 88, width: 60, height: 32, color: "#FFFFFF05" },
+        { id: "r4", label: "Master Bed", x: 40, y: 120, width: 60, height: 80, color: "#FFFFFF05" },
+        { id: "r5", label: "Kids Bed", x: 100, y: 120, width: 60, height: 80, color: "#FFFFFF05" },
       ];
       newOpenings = [
-        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 90 },
-        { id: "o2", type: "door", x: 120, y: 60, width: 28, rotation: 90 },
-        { id: "o3", type: "door", x: 80, y: 120, width: 28, rotation: 0 },
-        { id: "o4", type: "door", x: 145, y: 120, width: 28, rotation: 0 },
-        { id: "o5", type: "door", x: 170, y: 150, width: 28, rotation: 90 },
+        { id: "o1", type: "door", x: 40, y: 80, width: 28, rotation: 270 },
+        { id: "o2", type: "door", x: 70, y: 120, width: 28, rotation: 0 },
+        { id: "o3", type: "door", x: 130, y: 120, width: 28, rotation: 0 },
+        { id: "o4", type: "door", x: 100, y: 70, width: 28, rotation: 270 },
+        { id: "o5", type: "door", x: 100, y: 104, width: 28, rotation: 270 },
+        { id: "o6", type: "window", x: 70, y: 40, width: 36, rotation: 0 },
+        { id: "o7", type: "window", x: 130, y: 40, width: 36, rotation: 0 },
+        { id: "o8", type: "window", x: 70, y: 200, width: 36, rotation: 180 },
+        { id: "o9", type: "window", x: 130, y: 200, width: 36, rotation: 180 },
       ];
       newFurniture = [
-        { id: "f1", type: "bed", x: 140, y: 50, width: 20, height: 26, rotation: 0 },
-        { id: "f2", type: "bed", x: 50, y: 130, width: 20, height: 26, rotation: 0 },
+        { id: "f1", type: "bed", x: 45, y: 160, width: 20, height: 26, rotation: 0 },
+        { id: "f2", type: "bed", x: 130, y: 160, width: 20, height: 26, rotation: 0 },
+        { id: "f3", type: "sofa", x: 55, y: 45, width: 24, height: 12, rotation: 0 },
+        { id: "f4", type: "table", x: 60, y: 80, width: 16, height: 12, rotation: 0 },
+        { id: "f5", type: "toilet", x: 145, y: 92, width: 8, height: 10, rotation: 90 },
       ];
     }
 
@@ -1629,16 +1640,16 @@ export default function FloorPlanScreen({ navigation }: any) {
             <TouchableOpacity style={styles.presetCard} onPress={() => loadPresetTemplate("1bhk")}>
               <Ionicons name="business-outline" size={24} color={COLORS.cadSelect} />
               <View style={styles.presetCardBody}>
-                <Text style={styles.presetTitle}>1 BHK Apartment Layout (480 sqft)</Text>
-                <Text style={styles.presetDesc}>Bedroom, Hall, Kitchen, Bathroom. 30' x 16'.</Text>
+                <Text style={styles.presetTitle}>1 BHK Plan (900 sqft)</Text>
+                <Text style={styles.presetDesc}>Hall, Bedroom, Kitchen, and Bathroom. 30' x 30' plot footprint.</Text>
               </View>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.presetCard} onPress={() => loadPresetTemplate("2bhk")}>
               <Ionicons name="images-outline" size={24} color={COLORS.cadSelect} />
               <View style={styles.presetCardBody}>
-                <Text style={styles.presetTitle}>2 BHK Standard layout (800 sqft)</Text>
-                <Text style={styles.presetDesc}>2 Bedroom, Living, Kitchen, and Toilet. 40' x 20'.</Text>
+                <Text style={styles.presetTitle}>2 BHK Plan (1200 sqft)</Text>
+                <Text style={styles.presetDesc}>Living Hall, 2 Bedrooms, Kitchen, and Common Bath. 30' x 40' plot footprint.</Text>
               </View>
             </TouchableOpacity>
           </View>
