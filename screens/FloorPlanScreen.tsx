@@ -738,13 +738,11 @@ export default function FloorPlanScreen({ navigation }: any) {
 
     // 2. 3D orbit and walkthrough camera controllers
     if (viewMode === "3d") {
-      // Orbit drag rotation
+      // Orbit drag rotation: Horizontal rotation (Yaw) only, vertical rotation (Pitch) locked for CAD stability
       setOrbitYaw(prev => {
         const next = (prev + incDx * 0.5) % 360;
         return next < 0 ? next + 360 : next;
       });
-      // SketchUp-style free height orbit: pitch from -89 to 89 degrees allows viewing from underneath
-      setOrbitPitch(prev => Math.max(-89, Math.min(89, prev - incDy * 0.5)));
       return;
     }
 
