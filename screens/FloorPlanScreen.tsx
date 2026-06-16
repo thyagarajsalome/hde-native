@@ -398,7 +398,7 @@ export default function FloorPlanScreen({ navigation }: any) {
         return { room, wall: "top" as const };
       }
       // Bottom wall
-      if (Math.abs(op.y - (room.y + room.height)) < 5 && op.x >= room.x - 5 && op.x <= room.x + room.width + 5) {
+      if (Math.abs(op.y - (room.y + room.height)) < 5 && op.x >= room.x - 5 && op.x <= op.x + room.width + 5) {
         return { room, wall: "bottom" as const };
       }
       // Left wall
@@ -411,6 +411,74 @@ export default function FloorPlanScreen({ navigation }: any) {
       }
     }
     return null;
+  };
+
+  const snapOpeningToWalls = (x: number, y: number): { x: number; y: number; rotation: number } => {
+    let closestDist = 12; // Snap radius (approx 3 ft)
+    let bestSnap = { x: snap(x), y: snap(y), rotation: 0 };
+
+    // Check rooms walls
+    rooms.forEach(r => {
+      // Top wall
+      if (Math.abs(y - r.y) < closestDist && x >= r.x - 5 && x <= r.x + r.width + 5) {
+        closestDist = Math.abs(y - r.y);
+        bestSnap = { x: snap(x), y: r.y, rotation: 0 };
+      }
+      // Bottom wall
+      if (Math.abs(y - (r.y + r.height)) < closestDist && x >= r.x - 5 && x <= r.x + r.width + 5) {
+        closestDist = Math.abs(y - (r.y + r.height));
+        bestSnap = { x: snap(x), y: r.y + r.height, rotation: 180 };
+      }
+      // Left wall
+      if (Math.abs(x - r.x) < closestDist && y >= r.y - 5 && y <= r.y + r.height + 5) {
+        closestDist = Math.abs(x - r.x);
+        bestSnap = { x: r.x, y: snap(y), rotation: 270 };
+      }
+      // Right wall
+      if (Math.abs(x - (r.x + r.width)) < closestDist && y >= r.y - 5 && y <= r.y + r.height + 5) {
+        closestDist = Math.abs(x - (r.x + r.width));
+        bestSnap = { x: r.x + r.width, y: snap(y), rotation: 90 };
+      }
+    });
+
+    // Check custom walls
+    customWalls.forEach(w => {
+      const l2 = Math.pow(w.x2 - w.x1, 2) + Math.pow(w.y2 - w.y1, 2);
+      if (l2 === 0) return;
+      const t = Math.max(0, Math.min(1, ((x - w.x1) * (w.x2 - w.x1) + (y - w.y1) * (w.y2 - w.y1)) / l2));
+      const projX = w.x1 + t * (w.x2 - w.x1);
+      const projY = w.y1 + t * (w.y2 - w.y1);
+      const dist = Math.sqrt(Math.pow(x - projX, 2) + Math.pow(y - projY, 2));
+
+      if (dist < closestDist) {
+        closestDist = dist;
+        const angle = Math.round((Math.atan2(w.y2 - w.y1, w.x2 - w.x1) * 180) / Math.PI);
+        bestSnap = { x: snap(projX), y: snap(projY), rotation: angle };
+      }
+    });
+
+    return bestSnap;
+  };
+
+  const addOpening = (type: "door" | "window") => {
+    const id = "op_" + Date.now();
+    const width = type === "door" ? 28 : 36;
+    
+    // Drop at screen center
+    const dropX = snap((-pan2D.x + windowWidth / 2) / zoom2D);
+    const dropY = snap((-pan2D.y + viewportHeight / 2) / zoom2D);
+
+    const newOp: Opening = {
+      id,
+      type,
+      x: dropX,
+      y: dropY,
+      width,
+      rotation: 0,
+    };
+
+    setOpenings([...openings, newOp]);
+    setSelectedItem({ type: "opening", id });
   };
 
   // Add elements
@@ -805,10 +873,8 @@ export default function FloorPlanScreen({ navigation }: any) {
     } else if (draggedItem.type === "opening") {
       const op = openings.find(o => o.id === draggedItem.id);
       if (!op) return;
-      const snapData = getOpeningParentWall(op);
-      const snapX = snapData ? op.x : snap(calcX);
-      const snapY = snapData ? op.y : snap(calcY);
-      setOpenings(openings.map(o => o.id === op.id ? { ...o, x: snapX, y: snapY } : o));
+      const snapResult = snapOpeningToWalls(calcX, calcY);
+      setOpenings(openings.map(o => o.id === op.id ? { ...o, x: snapResult.x, y: snapResult.y, rotation: snapResult.rotation } : o));
     }
   };
 
@@ -1013,6 +1079,22 @@ export default function FloorPlanScreen({ navigation }: any) {
       setCamZ(5.0);
       setWalkYaw(0);
       setWalkPitch(0);
+    }
+  };
+
+  const setCameraPreset = (preset: "iso" | "top" | "front" | "side") => {
+    if (preset === "iso") {
+      setOrbitYaw(45);
+      setOrbitPitch(35);
+    } else if (preset === "top") {
+      setOrbitYaw(270);
+      setOrbitPitch(85);
+    } else if (preset === "front") {
+      setOrbitYaw(270);
+      setOrbitPitch(15);
+    } else if (preset === "side") {
+      setOrbitYaw(180);
+      setOrbitPitch(15);
     }
   };
 
@@ -1483,14 +1565,32 @@ export default function FloorPlanScreen({ navigation }: any) {
 
         {/* 3D ORBIT VIEWPORT (Drag finger to rotate / pinch to zoom) */}
         {viewMode === "3d" && (
-          <Svg width={windowWidth} height={viewportHeight} style={{ backgroundColor: "#0F1215" }}>
-            {render3DLayout()}
-            
-            {/* Viewport indicators */}
-            <G transform={`translate(20, ${viewportHeight - 20})`}>
-              <SvgText fontSize={9} fill={COLORS.slate} fontWeight="bold">ORBIT: DRAG FINGER TO SPIN</SvgText>
-            </G>
-          </Svg>
+          <>
+            <Svg width={windowWidth} height={viewportHeight} style={{ backgroundColor: "#0F1215" }}>
+              {render3DLayout()}
+              
+              {/* Viewport indicators */}
+              <G transform={`translate(20, ${viewportHeight - 20})`}>
+                <SvgText fontSize={9} fill={COLORS.slate} fontWeight="bold">ORBIT: DRAG FINGER/MOUSE TO SPIN</SvgText>
+              </G>
+            </Svg>
+
+            {/* Camera Presets floating selector */}
+            <View style={styles.camPresetContainer}>
+              <TouchableOpacity style={styles.camPresetBtn} onPress={() => setCameraPreset("iso")}>
+                <Text style={styles.camPresetBtnText}>ISO</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.camPresetBtn} onPress={() => setCameraPreset("top")}>
+                <Text style={styles.camPresetBtnText}>TOP</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.camPresetBtn} onPress={() => setCameraPreset("front")}>
+                <Text style={styles.camPresetBtnText}>FRONT</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.camPresetBtn} onPress={() => setCameraPreset("side")}>
+                <Text style={styles.camPresetBtnText}>SIDE</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         )}
 
         {/* Walkthrough view */}
@@ -1583,6 +1683,16 @@ export default function FloorPlanScreen({ navigation }: any) {
             <TouchableOpacity style={styles.toolBtn} onPress={() => setCustomRoomModal(true)}>
               <Ionicons name="add-circle-outline" size={20} color={COLORS.white} />
               <Text style={styles.toolBtnText}>Add Room</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addOpening("door")}>
+              <Ionicons name="log-in-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Door</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.toolBtn} onPress={() => addOpening("window")}>
+              <Ionicons name="browsers-outline" size={20} color={COLORS.white} />
+              <Text style={styles.toolBtnText}>+ Window</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.toolBtn} onPress={() => addFurniture("bed")}>
@@ -2256,5 +2366,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
     color: "#1E293B",
+  },
+  camPresetContainer: {
+    position: "absolute",
+    left: 20,
+    top: 20,
+    flexDirection: "row",
+    backgroundColor: "rgba(15, 18, 21, 0.85)",
+    borderWidth: 1,
+    borderColor: "#2C343B",
+    borderRadius: 8,
+    padding: 4,
+    gap: 6,
+  },
+  camPresetBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "#16191C",
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#3D4854",
+  },
+  camPresetBtnText: {
+    color: COLORS.white,
+    fontSize: 9,
+    fontWeight: "bold",
   },
 });
